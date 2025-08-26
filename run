@@ -1,8 +1,10 @@
 --// Load Rayfield UI \\--
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
 
+--// Services \\--
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -10,45 +12,91 @@ local RootPart = Character:WaitForChild("HumanoidRootPart")
 local Humanoid = Character:FindFirstChildOfClass("Humanoid")
 
 --// Variables \\--
-local autoAFKEnabled = false
 local autoAvoidEnabled = false
-local cooldown = 2
-local moveRadius = 30
 local avoidDistance = 15
 local backDistance = 10
-local replyKeywords = {"plss","pls","pet","fruit","money","garden"}
+local patrolRadius = 20
+local patrolSegments = 3
+local patrolPause = 1
+local replyKeywords = {"plss","pls"}
 local replyText = "no"
 
 --// Create Rayfield UI \\--
-local Window = Rayfield:CreateWindow({Name = "AFK & Né Player", LoadingTitle = "Đang tải...", LoadingSubtitle = "by Red"})
+local Window = Rayfield:CreateWindow({Name = "NPC Patrol + Né Player"})
 
 local MainTab = Window:CreateTab("Main")
 local SettingsTab = Window:CreateTab("Settings")
 
-MainTab:CreateToggle({Name = "Auto AFK", CurrentValue = false, Flag = "AutoAFK", Callback = function(state) autoAFKEnabled = state end})
-MainTab:CreateToggle({Name = "Auto Né Player", CurrentValue = false, Flag = "AutoAvoid", Callback = function(state) autoAvoidEnabled = state end})
+MainTab:CreateToggle({
+    Name = "Auto Né Player",
+    CurrentValue = false,
+    Flag = "AutoAvoid",
+    Callback = function(state)
+        autoAvoidEnabled = state
+    end
+})
 
-SettingsTab:CreateSlider({Name = "Cooldown (s)", Range = {1,10}, Increment = 0.5, Suffix = "s", CurrentValue = cooldown, Flag = "Cooldown", Callback = function(value) cooldown = value end})
-SettingsTab:CreateSlider({Name = "Move Radius", Range = {10,100}, Increment = 1, Suffix = "studs", CurrentValue = moveRadius, Flag = "MoveRadius", Callback = function(value) moveRadius = value end})
-SettingsTab:CreateSlider({Name = "Avoid Distance", Range = {5,50}, Increment = 1, Suffix = "studs", CurrentValue = avoidDistance, Flag = "AvoidDistance", Callback = function(value) avoidDistance = value end})
-SettingsTab:CreateSlider({Name = "Back Distance", Range = {5,30}, Increment = 1, Suffix = "studs", CurrentValue = backDistance, Flag = "BackDistance", Callback = function(value) backDistance = value end})
+--// Settings sliders \\--
+SettingsTab:CreateSlider({
+    Name = "Khoảng cách né",
+    Range = {5,50},
+    Increment = 1,
+    Suffix = "studs",
+    CurrentValue = avoidDistance,
+    Flag = "AvoidDistance",
+    Callback = function(value)
+        avoidDistance = value
+    end
+})
 
-SettingsTab:CreateInput({Name = "Reply Keywords (comma separated)", PlaceholderText = "plss,pls,pet,...", Text = table.concat(replyKeywords,","),
-    Flag = "ReplyKeywords", Callback = function(input)
+SettingsTab:CreateSlider({
+    Name = "Độ lùi khi né",
+    Range = {5,30},
+    Increment = 1,
+    Suffix = "studs",
+    CurrentValue = backDistance,
+    Flag = "BackDistance",
+    Callback = function(value)
+        backDistance = value
+    end
+})
+
+SettingsTab:CreateSlider({
+    Name = "Bán kính patrol",
+    Range = {10,50},
+    Increment = 1,
+    Suffix = "studs",
+    CurrentValue = patrolRadius,
+    Flag = "PatrolRadius",
+    Callback = function(value)
+        patrolRadius = value
+    end
+})
+
+SettingsTab:CreateInput({
+    Name = "Reply Keywords (comma separated)",
+    PlaceholderText = "plss,pls,...",
+    Text = table.concat(replyKeywords,","),
+    Flag = "ReplyKeywords",
+    Callback = function(input)
         replyKeywords = {}
         for word in string.gmatch(input, "[^,]+") do
             table.insert(replyKeywords, word:lower())
         end
-end})
+    end
+})
 
-SettingsTab:CreateInput({Name = "Reply Text", PlaceholderText = "no", Text = replyText, Flag = "ReplyText", Callback = function(input) replyText = input end})
+SettingsTab:CreateInput({
+    Name = "Reply Text",
+    PlaceholderText = "no",
+    Text = replyText,
+    Flag = "ReplyText",
+    Callback = function(input)
+        replyText = input
+    end
+})
 
 --// Utils \\--
-local function getRandomPosition(radius)
-    local angle = math.random() * math.pi * 2
-    return RootPart.Position + Vector3.new(math.cos(angle),0,math.sin(angle))*radius
-end
-
 local function isPlayerNearby(distance)
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
@@ -60,41 +108,49 @@ local function isPlayerNearby(distance)
     return nil
 end
 
-local function moveToPosition(pos, faceCFrame)
-    if Humanoid then
-        if faceCFrame then
-            RootPart.CFrame = CFrame.new(RootPart.Position, faceCFrame.Position)
-        end
-        Humanoid:MoveTo(pos)
-        Humanoid.MoveToFinished:Wait()
+local function moveAwayFromPlayer(plr)
+    if plr and Humanoid then
+        local dir = (RootPart.Position - plr.Character.HumanoidRootPart.Position).Unit
+        local targetPos = RootPart.Position + dir*backDistance
+        Humanoid:MoveTo(targetPos)
     end
 end
 
---// Auto AFK + Né with facing \\--
-RunService.Heartbeat:Connect(function()
-    if autoAFKEnabled or autoAvoidEnabled then
-        if Humanoid and Humanoid.Sit then
-            Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+local function getPatrolPositions(origin, segments, radius)
+    local positions = {}
+    for i = 1, segments do
+        local angle = math.random() * math.pi * 2
+        table.insert(positions, origin + Vector3.new(math.cos(angle),0,math.sin(angle))*radius)
+    end
+    return positions
+end
+
+--// NPC Patrol Logic \\--
+spawn(function()
+    while true do
+        local origin = RootPart.Position
+        local patrolPoints = getPatrolPositions(origin, patrolSegments, patrolRadius)
+        for _, point in ipairs(patrolPoints) do
+            Humanoid:MoveTo(point)
+            Humanoid.MoveToFinished:Wait()
+            task.wait(patrolPause)
         end
-
-        local targetPos = getRandomPosition(moveRadius)
-        local faceTarget = nil
-
-        if autoAvoidEnabled then
-            local plr = isPlayerNearby(avoidDistance)
-            if plr then
-                local dir = (RootPart.Position - plr.Character.HumanoidRootPart.Position).Unit
-                targetPos = RootPart.Position + dir*backDistance
-                faceTarget = plr.Character.HumanoidRootPart
-            end
-        end
-
-        moveToPosition(targetPos, faceTarget)
-        task.wait(cooldown)
+        -- Quay về chỗ cũ
+        Humanoid:MoveTo(origin)
+        Humanoid.MoveToFinished:Wait()
+        task.wait(patrolPause)
     end
 end)
 
---// Auto reply \\--
+--// Auto Né player loop \\--
+RunService.Heartbeat:Connect(function()
+    if autoAvoidEnabled then
+        local plr = isPlayerNearby(avoidDistance)
+        moveAwayFromPlayer(plr)
+    end
+end)
+
+--// Auto reply chat \\--
 Players.PlayerChatted:Connect(function(plr,msg)
     for _, keyword in ipairs(replyKeywords) do
         if string.find(string.lower(msg), keyword) then

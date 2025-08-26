@@ -1,155 +1,148 @@
 --// Load Rayfield UI
-local success, Rayfield = pcall(function()
-    return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
-end)
-if not success or not Rayfield then
-    warn("Không load được Rayfield UI")
-    return
-end
-
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
 
--- Config
+local LocalPlayer = Players.LocalPlayer
+local HRP, Humanoid = nil, nil
+
+--// Config
 local Config = {
-    Highlight = false,
+    ESP = false,
     Tracer = false,
-    Distance = 500,
-    Color = Color3.fromRGB(255,0,0),
-    AutoJumpSit = true,
-    AutoOffOnMove = true,
+    Highlight = false,
+    ESPColor = Color3.fromRGB(255, 0, 0),
+    AvoidPlayers = false,
+    AvoidDistance = 15,
+    AvoidStep = 20
 }
 
--- ESP storage
-local highlights = {}
-local tracers = {}
-
--- Highlight
-local function createHighlight(char)
-    local h = Instance.new("Highlight")
-    h.Adornee = char
-    h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    h.FillColor = Config.Color
-    h.OutlineColor = Color3.fromRGB(255,255,255)
-    h.Parent = char
-    return h
-end
-
--- Tracer
-local function createTracer()
-    local line = Drawing.new("Line")
-    line.Thickness = 2
-    line.Transparency = 1
-    line.Color = Config.Color
-    return line
-end
-
--- Main loop
-RunService.RenderStepped:Connect(function()
-    local char = LocalPlayer.Character
-    if char and char:FindFirstChild("Humanoid") then
-        local humanoid = char:FindFirstChild("Humanoid")
-
-        -- Auto Jump Sit
-        if Config.AutoJumpSit and humanoid.Sit then
-            humanoid.Jump = true
-        end
-
-        -- Auto off khi di chuyển
-        if Config.AutoOffOnMove and humanoid.MoveDirection.Magnitude > 0 then
-            Config.Highlight = false
-            Config.Tracer = false
-        end
+--// Update character refs
+local function UpdateChar()
+    if LocalPlayer.Character then
+        HRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        Humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
     end
+end
+LocalPlayer.CharacterAdded:Connect(function() task.wait(1) UpdateChar() end)
+UpdateChar()
 
-    for _,player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local root = player.Character.HumanoidRootPart
-            local pos, vis = Camera:WorldToViewportPoint(root.Position)
-            local dist = (root.Position - Camera.CFrame.Position).Magnitude
+--// ESP Highlight
+local function CreateHighlight(char)
+    if char and not char:FindFirstChild("ESP_Highlight") then
+        local h = Instance.new("Highlight", char)
+        h.Name = "ESP_Highlight"
+        h.FillTransparency = 0.5
+        h.OutlineTransparency = 0
+        h.FillColor = Config.ESPColor
+    end
+end
+local function RemoveHighlight(char)
+    if char and char:FindFirstChild("ESP_Highlight") then
+        char.ESP_Highlight:Destroy()
+    end
+end
 
-            -- Highlight
+--// ESP Loop
+RunService.RenderStepped:Connect(function()
+    for _,plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
             if Config.Highlight then
-                if not highlights[player] then
-                    highlights[player] = createHighlight(player.Character)
-                end
-                highlights[player].Enabled = dist <= Config.Distance
-                highlights[player].FillColor = Config.Color
-            elseif highlights[player] then
-                highlights[player]:Destroy()
-                highlights[player] = nil
-            end
-
-            -- Tracer
-            if Config.Tracer then
-                if not tracers[player] then
-                    tracers[player] = createTracer()
-                end
-                if vis and dist <= Config.Distance then
-                    tracers[player].From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
-                    tracers[player].To = Vector2.new(pos.X, pos.Y)
-                    tracers[player].Visible = true
-                    tracers[player].Color = Config.Color
-                else
-                    tracers[player].Visible = false
-                end
-            elseif tracers[player] then
-                tracers[player].Visible = false
+                CreateHighlight(plr.Character)
+            else
+                RemoveHighlight(plr.Character)
             end
         end
     end
 end)
 
---// Rayfield UI Setup
+--// Sit auto jump
+task.spawn(function()
+    while task.wait(0.2) do
+        if Humanoid and Humanoid.Sit then
+            Humanoid.Jump = true
+        end
+    end
+end)
+
+--// Auto disable if player moves manually
+local lastPos = nil
+task.spawn(function()
+    while task.wait(1) do
+        if HRP then
+            if lastPos and (HRP.Position - lastPos).Magnitude > 2 then
+                -- tự di chuyển => tắt ESP
+                Config.ESP = false
+                Config.Highlight = false
+                Rayfield:Notify({
+                    Title = "ESP Disabled",
+                    Content = "Bạn đã tự điều khiển nhân vật!",
+                    Duration = 3
+                })
+            end
+            lastPos = HRP.Position
+        end
+    end
+end)
+
+--// Avoid Players Loop
+task.spawn(function()
+    while task.wait(0.2) do
+        if Config.AvoidPlayers and HRP and Humanoid then
+            local closest, dist = nil, math.huge
+            for _,plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                    local d = (plr.Character.HumanoidRootPart.Position - HRP.Position).Magnitude
+                    if d < dist then
+                        dist = d
+                        closest = plr
+                    end
+                end
+            end
+            if closest and dist <= Config.AvoidDistance then
+                local dir = (HRP.Position - closest.Character.HumanoidRootPart.Position).Unit
+                local offset = dir * Config.AvoidStep
+                offset = offset + Vector3.new(math.random(-5,5),0,math.random(-5,5))
+                local targetPos = HRP.Position + offset
+                Humanoid:MoveTo(targetPos)
+            end
+        end
+    end
+end)
+
+--// UI Setup
 local Window = Rayfield:CreateWindow({
-    Name = "⚡ ESP Menu (Rayfield)",
-    LoadingTitle = "Loading ESP...",
-    LoadingSubtitle = "By Red",
+    Name = "ESP Control Panel",
+    LoadingTitle = "🚀 ESP Menu",
+    LoadingSubtitle = "by Red",
     ConfigurationSaving = {
-        Enabled = true,
-        FolderName = "ESP_Config",
-        FileName = "Config"
+       Enabled = false
     }
 })
 
-local Tab = Window:CreateTab("ESP", 4483362458)
+local Tab = Window:CreateTab("Main", 4483362458)
 
 Tab:CreateToggle({
-    Name = "Highlight",
+    Name = "ESP Highlight",
     CurrentValue = false,
-    Callback = function(val) Config.Highlight = val end
-})
-
-Tab:CreateToggle({
-    Name = "Tracer",
-    CurrentValue = false,
-    Callback = function(val) Config.Tracer = val end
-})
-
-Tab:CreateSlider({
-    Name = "ESP Distance",
-    Range = {50, 1000},
-    Increment = 10,
-    CurrentValue = 500,
-    Callback = function(val) Config.Distance = val end
+    Callback = function(val)
+        Config.Highlight = val
+    end
 })
 
 Tab:CreateColorPicker({
     Name = "ESP Color",
-    Color = Color3.fromRGB(255,0,0),
-    Callback = function(val) Config.Color = val end
+    Color = Config.ESPColor,
+    Callback = function(val)
+        Config.ESPColor = val
+    end
 })
 
 Tab:CreateToggle({
-    Name = "Auto Jump khi Sit",
-    CurrentValue = true,
-    Callback = function(val) Config.AutoJumpSit = val end
-})
-
-Tab:CreateToggle({
-    Name = "Tắt ESP khi di chuyển",
-    CurrentValue = true,
-    Callback = function(val) Config.AutoOffOnMove = val end
+    Name = "Auto né player gần",
+    CurrentValue = false,
+    Callback = function(val)
+        Config.AvoidPlayers = val
+    end
 })

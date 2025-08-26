@@ -1,184 +1,126 @@
--- Kavo UI
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/RegularVynixu/Kavo-UI-Library/main/source.lua"))()
-local Window = Library.CreateLib("AFK + Né Player 🦅", "DarkTheme")
+-- Load Solaris UI
+local SolarisLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/bloodball/UI-Librarys/main/SolarisLib.lua"))()
 
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-
 local LocalPlayer = Players.LocalPlayer
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local HRP = Character:WaitForChild("HumanoidRootPart")
-local Humanoid = Character:WaitForChild("Humanoid")
+local Character, Humanoid, RootPart = nil, nil, nil
 
--- Config
-local Config = {
-    AutoAFK = false,
-    AutoAFKAvoid = false,
-    AutoAvoidOnly = false,
-    WalkCooldown = 2,
-    WalkRange = 30,
-    AvoidDistance = 15,
-    StepBack = 10,
-    JumpWhenSit = true
-}
+-- Variables
+local autoAFKEnabled = false
+local autoAFKAvoidEnabled = false
+local autoAvoidEnabled = false
+local cooldown = 2
+local moveRange = 30
+local avoidRange = 15
+local backDistance = 10
+local keywords = {"plss", "pls", "pet", "fruit", "money", "garden"}
+local replyText = "no"
 
--- Auto reply keywords
-local AutoReplyKeywords = {"plss", "pls", "pet", "fruit", "money", "garden"}
+-- Update character references
+local function updateCharacter()
+    Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    Humanoid = Character:WaitForChild("Humanoid")
+    RootPart = Character:WaitForChild("HumanoidRootPart") or Character:WaitForChild("UpperTorso") or Character.PrimaryPart
+end
+updateCharacter()
+LocalPlayer.CharacterAdded:Connect(updateCharacter)
 
--- Check obstacle
-local function isObstacle(pos)
-    local ray = Ray.new(HRP.Position, (pos - HRP.Position).Unit * 5)
-    local part = workspace:FindPartOnRayWithIgnoreList(ray, {Character})
-    return part ~= nil
+-- Helper: Random Vector3 near root
+local function randomPosition(range)
+    local x = math.random(-range, range)
+    local z = math.random(-range, range)
+    return RootPart.Position + Vector3.new(x,0,z)
 end
 
--- Move safe
-local function moveToSafe(pos)
-    local attempt = 0
-    while attempt < 5 do
-        if not isObstacle(pos) then
-            Humanoid:MoveTo(pos)
-            Humanoid.MoveToFinished:Wait()
-            break
-        else
-            pos = HRP.Position + Vector3.new(
-                math.random(-Config.WalkRange, Config.WalkRange),
-                0,
-                math.random(-Config.WalkRange, Config.WalkRange)
-            )
-        end
-        attempt += 1
+-- Helper: Distance check
+local function distanceToPlayer(otherPlayer)
+    if otherPlayer.Character and otherPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        return (RootPart.Position - otherPlayer.Character.HumanoidRootPart.Position).Magnitude
     end
+    return math.huge
 end
 
--- Random walk like NPC + avoid obstacles
-local function randomWalkSafe()
-    local newPos = HRP.Position + Vector3.new(
-        math.random(-Config.WalkRange, Config.WalkRange),
-        0,
-        math.random(-Config.WalkRange, Config.WalkRange)
-    )
-    moveToSafe(newPos)
-end
-
--- Avoid players + avoid obstacles
-local function avoidPlayersSafe(freeWalk)
-    local closest, dist = nil, math.huge
-    for _,plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            local d = (HRP.Position - plr.Character.HumanoidRootPart.Position).Magnitude
-            if d < dist then
-                closest, dist = plr, d
-            end
-        end
-    end
-
-    if closest and dist <= Config.AvoidDistance then
-        local targetHRP = closest.Character.HumanoidRootPart
-        local dir = (HRP.Position - targetHRP.Position).Unit
-
-        -- Quay mặt về player
-        HRP.CFrame = CFrame.lookAt(HRP.Position, targetHRP.Position)
-
-        -- Lùi từng step tránh obstacle
-        local stepBackPos = HRP.Position + dir * Config.StepBack
-        moveToSafe(stepBackPos)
-
-        avoidPlayersSafe(freeWalk)
-    elseif freeWalk then
-        randomWalkSafe()
-    end
-end
-
--- Auto AFK / Né loop + tự nhảy khi sit
-task.spawn(function()
-    while task.wait(0.1) do
-        if Humanoid.Sit and Config.JumpWhenSit then
-            Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        end
-
-        if Config.AutoAFK and not Config.AutoAFKAvoid and not Config.AutoAvoidOnly then
-            randomWalkSafe()
-            task.wait(Config.WalkCooldown)
-        elseif Config.AutoAFKAvoid and not Config.AutoAFK then
-            avoidPlayersSafe(true)
-            task.wait(Config.WalkCooldown)
-        elseif Config.AutoAvoidOnly and not Config.AutoAFK and not Config.AutoAFKAvoid then
-            avoidPlayersSafe(false)
-            task.wait(0.5)
-        end
-    end
-end)
-
--- Auto reply function
-local function autoReplyNo(player, msg)
-    for _, keyword in ipairs(AutoReplyKeywords) do
+-- Auto reply chat
+Players.PlayerChatted:Connect(function(player, msg)
+    for _, keyword in ipairs(keywords) do
         if string.find(string.lower(msg), keyword) then
-            task.spawn(function()
-                task.wait(math.random(1,3))
-                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head") then
-                    game:GetService("Chat"):Chat(LocalPlayer.Character.Head, "no", Enum.ChatColor.Red)
-                end
-            end)
+            -- Fake chat reply without spam detection
+            game:GetService("ReplicatedStorage"):WaitForChild("DefaultChatSystemChatEvents")
+                :WaitForChild("SayMessageRequest")
+                :FireServer(replyText, "All")
             break
         end
     end
-end
+end)
 
--- Connect chat
-for _, plr in ipairs(Players:GetPlayers()) do
-    if plr ~= LocalPlayer then
-        plr.Chatted:Connect(function(msg) autoReplyNo(plr, msg) end)
+-- Anti-AFK movement
+task.spawn(function()
+    while true do
+        task.wait(cooldown)
+        if autoAFKEnabled or autoAFKAvoidEnabled then
+            -- Auto jump if sitting
+            if Humanoid.Sit then
+                Humanoid.Jump = true
+            end
+
+            local targetPos = randomPosition(moveRange)
+
+            -- Avoid players
+            if autoAFKAvoidEnabled or autoAvoidEnabled then
+                for _, player in pairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and distanceToPlayer(player) < avoidRange then
+                        local dir = (RootPart.Position - player.Character.HumanoidRootPart.Position).Unit
+                        targetPos = RootPart.Position + dir * backDistance
+                    end
+                end
+            end
+
+            -- Avoid obstacles (basic raycast)
+            local ray = Ray.new(RootPart.Position, (targetPos - RootPart.Position).Unit * moveRange)
+            local hit = workspace:FindPartOnRayWithIgnoreList(ray, {Character})
+            if hit then
+                targetPos = RootPart.Position - (targetPos - RootPart.Position).Unit * 5
+            end
+
+            RootPart.CFrame = CFrame.new(targetPos)
+        end
     end
-end
-Players.PlayerAdded:Connect(function(plr)
-    if plr ~= LocalPlayer then
-        plr.Chatted:Connect(function(msg) autoReplyNo(plr, msg) end)
+end)
+
+-- Build UI
+local Window = SolarisLib:New({Name="Anti-AFK & Né Player", FolderToSave="SolarisAFK"})
+local MainTab = Window:Tab("Main")
+local SettingsTab = Window:Tab("Settings")
+
+-- Main Toggles
+MainTab:Toggle("Auto AFK", function(state)
+    autoAFKEnabled = state
+    if state then autoAFKAvoidEnabled = false end
+end)
+
+MainTab:Toggle("Auto AFK + Né Player", function(state)
+    autoAFKAvoidEnabled = state
+    if state then autoAFKEnabled = false end
+end)
+
+MainTab:Toggle("Auto Né Player", function(state)
+    autoAvoidEnabled = state
+end)
+
+-- Settings
+SettingsTab:Slider("Cooldown (s)",1,10,cooldown,function(value) cooldown = value end)
+SettingsTab:Slider("Phạm vi di chuyển",10,100,moveRange,function(value) moveRange = value end)
+SettingsTab:Slider("Khoảng cách né",5,50,avoidRange,function(value) avoidRange = value end)
+SettingsTab:Slider("Độ lùi khi né",5,30,backDistance,function(value) backDistance = value end)
+SettingsTab:Textbox("Từ khóa phản hồi","Nhập từ khóa cách nhau bằng dấu phẩy",function(value)
+    keywords = {}
+    for word in string.gmatch(value, "[^,]+") do
+        table.insert(keywords, word:lower())
     end
 end)
-
--- UI
-local MainTab = Window:NewTab("Main")
-
-MainTab:NewToggle("Auto AFK", "Di chuyển như NPC", function(v)
-    Config.AutoAFK = v
-    if v then Config.AutoAFKAvoid = false Config.AutoAvoidOnly = false end
-end)
-
-MainTab:NewToggle("Auto AFK + Né Player", "Di chuyển + né player + né vật thể", function(v)
-    Config.AutoAFKAvoid = v
-    if v then Config.AutoAFK = false Config.AutoAvoidOnly = false end
-end)
-
-MainTab:NewToggle("Auto Né Player", "Chỉ né player + vật thể", function(v)
-    Config.AutoAvoidOnly = v
-    if v then Config.AutoAFK = false Config.AutoAFKAvoid = false end
-end)
-
-local SettingsTab = Window:NewTab("Settings")
-
-SettingsTab:NewSlider("Cooldown (s)", "Cooldown giữa các bước đi", 1, 10, 2, function(v)
-    Config.WalkCooldown = v
-end)
-
-SettingsTab:NewSlider("Phạm vi đường đi", "Random range", 10, 100, 30, function(v)
-    Config.WalkRange = v
-end)
-
-SettingsTab:NewSlider("Khoảng cách né player", "Distance to avoid", 5, 50, 15, function(v)
-    Config.AvoidDistance = v
-end)
-
-SettingsTab:NewSlider("Độ lùi khi né", "Step-back khi né", 5, 30, 10, function(v)
-    Config.StepBack = v
-end)
-
--- Textbox tùy chỉnh từ khóa auto reply
-SettingsTab:NewTextBox("Từ khóa auto reply", "Ngăn cách dấu ,", function(value)
-    AutoReplyKeywords = {}
-    for word in string.gmatch(value, "[^,%s]+") do
-        table.insert(AutoReplyKeywords, string.lower(word))
-    end
+SettingsTab:Textbox("Text phản hồi","Nhập nội dung reply",function(value)
+    replyText = value
 end)

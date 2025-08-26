@@ -1,148 +1,111 @@
---// Load Rayfield UI
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- Load Rayfield
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+end)
+if not success or not Rayfield then
+    warn("Không load được Rayfield")
+    return
+end
+
+-- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
-local HRP, Humanoid = nil, nil
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HRP = Character:WaitForChild("HumanoidRootPart")
+local Humanoid = Character:WaitForChild("Humanoid")
 
---// Config
+-- Config
 local Config = {
-    ESP = false,
-    Tracer = false,
-    Highlight = false,
-    ESPColor = Color3.fromRGB(255, 0, 0),
-    AvoidPlayers = false,
+    AutoAFK = false,
+    AutoAFKAvoid = false,
+    AutoAvoidOnly = false,
+    WalkCooldown = 2,
+    WalkRange = 30,
     AvoidDistance = 15,
-    AvoidStep = 20
+    StepBack = 10,
 }
 
---// Update character refs
-local function UpdateChar()
-    if LocalPlayer.Character then
-        HRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        Humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
-    end
-end
-LocalPlayer.CharacterAdded:Connect(function() task.wait(1) UpdateChar() end)
-UpdateChar()
-
---// ESP Highlight
-local function CreateHighlight(char)
-    if char and not char:FindFirstChild("ESP_Highlight") then
-        local h = Instance.new("Highlight", char)
-        h.Name = "ESP_Highlight"
-        h.FillTransparency = 0.5
-        h.OutlineTransparency = 0
-        h.FillColor = Config.ESPColor
-    end
-end
-local function RemoveHighlight(char)
-    if char and char:FindFirstChild("ESP_Highlight") then
-        char.ESP_Highlight:Destroy()
-    end
+-- Random Walk AFK
+local function randomWalk()
+    local newPos = HRP.Position + Vector3.new(
+        math.random(-Config.WalkRange, Config.WalkRange),
+        0,
+        math.random(-Config.WalkRange, Config.WalkRange)
+    )
+    Humanoid:MoveTo(newPos)
 end
 
---// ESP Loop
-RunService.RenderStepped:Connect(function()
+-- Né player liên tục
+local function avoidPlayersContinuous(freeWalk)
+    local closest, dist = nil, math.huge
     for _,plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character then
-            if Config.Highlight then
-                CreateHighlight(plr.Character)
-            else
-                RemoveHighlight(plr.Character)
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local d = (HRP.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+            if d < dist then
+                closest, dist = plr, d
             end
         end
     end
-end)
 
---// Sit auto jump
+    if closest and dist <= Config.AvoidDistance then
+        local targetHRP = closest.Character.HumanoidRootPart
+        local dir = (HRP.Position - targetHRP.Position).Unit
+
+        -- Quay mặt về player
+        HRP.CFrame = CFrame.lookAt(HRP.Position, targetHRP.Position)
+
+        -- Lùi từng step
+        local stepBackPos = HRP.Position + dir * Config.StepBack
+        Humanoid:MoveTo(stepBackPos)
+        Humanoid.MoveToFinished:Wait()
+
+        -- Loop lại
+        avoidPlayersContinuous(freeWalk)
+    elseif freeWalk then
+        randomWalk()
+    end
+end
+
+-- Loop Auto AFK / Né
 task.spawn(function()
-    while task.wait(0.2) do
-        if Humanoid and Humanoid.Sit then
-            Humanoid.Jump = true
+    while task.wait() do
+        if Config.AutoAFK and not Config.AutoAFKAvoid and not Config.AutoAvoidOnly then
+            randomWalk()
+            task.wait(Config.WalkCooldown)
+        elseif Config.AutoAFKAvoid and not Config.AutoAFK then
+            avoidPlayersContinuous(true)
+            task.wait(Config.WalkCooldown)
+        elseif Config.AutoAvoidOnly and not Config.AutoAFK and not Config.AutoAFKAvoid then
+            avoidPlayersContinuous(false)
+            task.wait(0.5)
         end
     end
 end)
 
---// Auto disable if player moves manually
-local lastPos = nil
-task.spawn(function()
-    while task.wait(1) do
-        if HRP then
-            if lastPos and (HRP.Position - lastPos).Magnitude > 2 then
-                -- tự di chuyển => tắt ESP
-                Config.ESP = false
-                Config.Highlight = false
-                Rayfield:Notify({
-                    Title = "ESP Disabled",
-                    Content = "Bạn đã tự điều khiển nhân vật!",
-                    Duration = 3
-                })
-            end
-            lastPos = HRP.Position
-        end
-    end
-end)
+-- UI
+local Window = Rayfield:CreateWindow({ Name = "AFK + Né Player 🦅" })
+local Tab = Window:CreateTab("Main")
 
---// Avoid Players Loop
-task.spawn(function()
-    while task.wait(0.2) do
-        if Config.AvoidPlayers and HRP and Humanoid then
-            local closest, dist = nil, math.huge
-            for _,plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                    local d = (plr.Character.HumanoidRootPart.Position - HRP.Position).Magnitude
-                    if d < dist then
-                        dist = d
-                        closest = plr
-                    end
-                end
-            end
-            if closest and dist <= Config.AvoidDistance then
-                local dir = (HRP.Position - closest.Character.HumanoidRootPart.Position).Unit
-                local offset = dir * Config.AvoidStep
-                offset = offset + Vector3.new(math.random(-5,5),0,math.random(-5,5))
-                local targetPos = HRP.Position + offset
-                Humanoid:MoveTo(targetPos)
-            end
-        end
-    end
-end)
+-- Sliders
+Tab:CreateSlider({ Name = "Cooldown (s)", Range = {1,10}, CurrentValue = 2, Callback = function(v) Config.WalkCooldown = v end })
+Tab:CreateSlider({ Name = "Phạm vi đường đi", Range = {10,100}, CurrentValue = 30, Callback = function(v) Config.WalkRange = v end })
+Tab:CreateSlider({ Name = "Khoảng cách né player", Range = {5,50}, CurrentValue = 15, Callback = function(v) Config.AvoidDistance = v end })
+Tab:CreateSlider({ Name = "Độ lùi khi né", Range = {5,30}, CurrentValue = 10, Callback = function(v) Config.StepBack = v end })
 
---// UI Setup
-local Window = Rayfield:CreateWindow({
-    Name = "ESP Control Panel",
-    LoadingTitle = "🚀 ESP Menu",
-    LoadingSubtitle = "by Red",
-    ConfigurationSaving = {
-       Enabled = false
-    }
-})
+-- Buttons
+Tab:CreateToggle({ Name = "Auto AFK", CurrentValue = false, Callback = function(v)
+    Config.AutoAFK = v
+    if v then Config.AutoAFKAvoid = false Config.AutoAvoidOnly = false end
+end })
 
-local Tab = Window:CreateTab("Main", 4483362458)
+Tab:CreateToggle({ Name = "Auto AFK + Né Player", CurrentValue = false, Callback = function(v)
+    Config.AutoAFKAvoid = v
+    if v then Config.AutoAFK = false Config.AutoAvoidOnly = false end
+end })
 
-Tab:CreateToggle({
-    Name = "ESP Highlight",
-    CurrentValue = false,
-    Callback = function(val)
-        Config.Highlight = val
-    end
-})
-
-Tab:CreateColorPicker({
-    Name = "ESP Color",
-    Color = Config.ESPColor,
-    Callback = function(val)
-        Config.ESPColor = val
-    end
-})
-
-Tab:CreateToggle({
-    Name = "Auto né player gần",
-    CurrentValue = false,
-    Callback = function(val)
-        Config.AvoidPlayers = val
-    end
-})
+Tab:CreateToggle({ Name = "Auto Né Player", CurrentValue = false, Callback = function(v)
+    Config.AutoAvoidOnly = v
+    if v then Config.AutoAFK = false Config.AutoAFKAvoid = false end
+end })

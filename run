@@ -106,8 +106,7 @@ MainTab:CreateButton({
             end
         end
         if nearest then
-            Humanoid:MoveTo(nearest.Character.HumanoidRootPart.Position)
-            Humanoid.MoveToFinished:Wait()
+            moveToPosition(nearest.Character.HumanoidRootPart.Position)
             LocalPlayer:Chat("Done!")
         end
     end
@@ -129,8 +128,7 @@ MainTab:CreateButton({
     Callback = function()
         local plr = Players:FindFirstChild(targetPlayerName)
         if plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            Humanoid:MoveTo(plr.Character.HumanoidRootPart.Position)
-            Humanoid.MoveToFinished:Wait()
+            moveToPosition(plr.Character.HumanoidRootPart.Position)
             LocalPlayer:Chat("Done!")
             targetPlayerName = ""
         end
@@ -153,10 +151,21 @@ local function moveAwayFromPlayer(plr)
     if plr and Humanoid then
         local dir = (RootPart.Position - plr.Character.HumanoidRootPart.Position).Unit
         local targetPos = RootPart.Position + dir*backDistance
-        Humanoid:MoveTo(targetPos)
+        moveToPosition(targetPos)
+    end
+end
+
+-- Move tới point với loop tránh bị kẹt
+function moveToPosition(pos)
+    if not Humanoid or not RootPart then return end
+    local startTime = tick()
+    while (RootPart.Position - pos).Magnitude > 2 do
+        Humanoid:MoveTo(pos)
         if Humanoid:GetState() ~= Enum.HumanoidStateType.Jumping and math.random() < 0.2 then
             Humanoid.Jump = true
         end
+        task.wait(0.1)
+        if tick() - startTime > 15 then break end
     end
 end
 
@@ -181,7 +190,7 @@ local function createESPText(pos, index)
     label.BackgroundTransparency = 1
     label.TextColor3 = Color3.fromRGB(255,255,0)
     label.TextStrokeTransparency = 0
-    label.Font = Enum.Font.SourceSansBold
+    label.Font = Enum.Font.GothamBold   -- font game đẹp
     label.TextScaled = true
     label.Text = os.date("Last seen: %H:%M") .. " ("..index..")"
     label.Parent = billboard
@@ -209,19 +218,14 @@ spawn(function()
             for _, point in ipairs(patrolPoints) do
                 if not (AutoAFKNormal or AutoAFKAntiPlayer) then break end
 
-                -- Nhảy ngẫu nhiên
-                if Humanoid:GetState() ~= Enum.HumanoidStateType.Jumping and math.random() < 0.2 then
-                    Humanoid.Jump = true
-                end
-
-                -- Né player nếu AntiPlayer
+                -- Né player nếu AFKAntiPlayer
                 if AutoAFKAntiPlayer then
                     local plr = isPlayerNearby(avoidDistance)
                     moveAwayFromPlayer(plr)
                 end
 
-                Humanoid:MoveTo(point)
-                Humanoid.MoveToFinished:Wait()
+                -- Di chuyển patrol + nhảy ngẫu nhiên
+                moveToPosition(point)
                 task.wait(math.random(patrolPauseMin, patrolPauseMax))
 
                 -- Save Last seen
@@ -234,9 +238,7 @@ spawn(function()
 
                     -- Reset nếu >5 save
                     if #savedPositions > 5 then
-                        Humanoid:MoveTo(savedPositions[1])
-                        Humanoid.MoveToFinished:Wait()
-                        task.wait(math.random(patrolPauseMin, patrolPauseMax))
+                        moveToPosition(savedPositions[1])
                         for _, esp in ipairs(espList) do
                             esp.billboard:Destroy()
                             esp.part:Destroy()
@@ -264,5 +266,5 @@ end)
 LocalPlayer.CharacterAdded:Connect(function(char)
     Character = char
     RootPart = char:WaitForChild("HumanoidRootPart")
-    Humanoid = char:FindFirstChildOfClass("Humanoid")
+    Humanoid = char:WaitForChild("Humanoid")
 end)

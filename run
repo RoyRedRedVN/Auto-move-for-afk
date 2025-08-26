@@ -1,6 +1,5 @@
 -- LocalScript trong StarterPlayerScripts
 local Players = game:GetService("Players")
-local PathfindingService = game:GetService("PathfindingService")
 
 local player = Players.LocalPlayer
 local char = player.Character or player.CharacterAdded:Wait()
@@ -9,7 +8,7 @@ local root = char:WaitForChild("HumanoidRootPart")
 
 local WALK_RADIUS = 50
 
--- random point quanh player
+-- Random 1 điểm quanh player
 local function getRandomPoint()
 	local base = root.Position
 	local offset = Vector3.new(
@@ -20,25 +19,21 @@ local function getRandomPoint()
 	return base + offset
 end
 
-local function moveTo(destination)
-	local path = PathfindingService:CreatePath()
-	path:ComputeAsync(root.Position, destination)
-
-	if path.Status == Enum.PathStatus.Complete then
-		local waypoints = path:GetWaypoints()
-		for _, wp in ipairs(waypoints) do
-			humanoid:MoveTo(wp.Position)
-			local reached = humanoid.MoveToFinished:Wait()
-			if not reached then break end
-		end
+-- Nếu humanoid ngồi thì bật nhảy
+humanoid:GetPropertyChangedSignal("Sit"):Connect(function()
+	if humanoid.Sit then
+		print("⚠️ Player bị sit → auto jump!")
+		humanoid.Jump = true
 	end
-end
+end)
 
--- main loop
+-- Main loop: đi tới điểm, nghỉ 2s, rồi đi tiếp
 task.spawn(function()
 	while true do
 		local point = getRandomPoint()
-		moveTo(point)
-		task.wait(2) -- ✅ nghỉ 2 giây rồi mới đi tiếp
+		print("👉 MoveTo:", point)
+		humanoid:MoveTo(point)
+		humanoid.MoveToFinished:Wait()
+		task.wait(2) -- nghỉ 2 giây
 	end
 end)

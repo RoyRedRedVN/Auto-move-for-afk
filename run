@@ -17,19 +17,24 @@ local AutoAFKAntiPlayer = false
 local AutoAvoid = false
 
 local avoidDistance = 15
-local backDistance = 10
-local patrolRadius = 20
 local patrolSegments = 3
-local patrolPauseMin = 3
-local patrolPauseMax = 10
+local patrolRadius = 20
+local backDistance = 10
 
 local savedPositions = {}
 local espList = {}
 local patrolCounter = 0
 local maxPatrolBeforeSave = math.random(3,5)
 
---// Move to input name
 local targetPlayerName = ""
+
+--// Random Cooldowns \\--
+local patrolCooldownMin = 3
+local patrolCooldownMax = 8
+local avoidCooldownMin = 0.3
+local avoidCooldownMax = 1.2
+local moveDistanceMin = 5
+local moveDistanceMax = 15
 
 --// Rayfield UI \\--
 local Window = Rayfield:CreateWindow({Name = "NPC Patrol + MoveTo + Anti Player"})
@@ -135,6 +140,79 @@ MainTab:CreateButton({
     end
 })
 
+--// Sliders for Cooldowns & Distance \\--
+SettingsTab:CreateSlider({
+    Name = "Patrol Cooldown Min",
+    Range = {1, 10},
+    Increment = 0.5,
+    Suffix = "s",
+    CurrentValue = patrolCooldownMin,
+    Flag = "PatrolCooldownMin",
+    Callback = function(value)
+        patrolCooldownMin = value
+    end
+})
+
+SettingsTab:CreateSlider({
+    Name = "Patrol Cooldown Max",
+    Range = {2, 15},
+    Increment = 0.5,
+    Suffix = "s",
+    CurrentValue = patrolCooldownMax,
+    Flag = "PatrolCooldownMax",
+    Callback = function(value)
+        patrolCooldownMax = value
+    end
+})
+
+SettingsTab:CreateSlider({
+    Name = "AutoAvoid Cooldown Min",
+    Range = {0.1, 3},
+    Increment = 0.1,
+    Suffix = "s",
+    CurrentValue = avoidCooldownMin,
+    Flag = "AvoidCooldownMin",
+    Callback = function(value)
+        avoidCooldownMin = value
+    end
+})
+
+SettingsTab:CreateSlider({
+    Name = "AutoAvoid Cooldown Max",
+    Range = {0.2, 5},
+    Increment = 0.1,
+    Suffix = "s",
+    CurrentValue = avoidCooldownMax,
+    Flag = "AvoidCooldownMax",
+    Callback = function(value)
+        avoidCooldownMax = value
+    end
+})
+
+SettingsTab:CreateSlider({
+    Name = "Move Distance Min",
+    Range = {3, 20},
+    Increment = 1,
+    Suffix = "studs",
+    CurrentValue = moveDistanceMin,
+    Flag = "MoveDistanceMin",
+    Callback = function(value)
+        moveDistanceMin = value
+    end
+})
+
+SettingsTab:CreateSlider({
+    Name = "Move Distance Max",
+    Range = {5, 30},
+    Increment = 1,
+    Suffix = "studs",
+    CurrentValue = moveDistanceMax,
+    Flag = "MoveDistanceMax",
+    Callback = function(value)
+        moveDistanceMax = value
+    end
+})
+
 --// Utils \\--
 local function isPlayerNearby(distance)
     for _, plr in ipairs(Players:GetPlayers()) do
@@ -150,12 +228,12 @@ end
 local function moveAwayFromPlayer(plr)
     if plr and Humanoid then
         local dir = (RootPart.Position - plr.Character.HumanoidRootPart.Position).Unit
-        local targetPos = RootPart.Position + dir*backDistance
+        local randomBack = math.random(moveDistanceMin, moveDistanceMax)
+        local targetPos = RootPart.Position + dir*randomBack
         moveToPosition(targetPos)
     end
 end
 
--- Move tới point với loop tránh bị kẹt
 function moveToPosition(pos)
     if not Humanoid or not RootPart then return end
     local startTime = tick()
@@ -173,7 +251,8 @@ local function getPatrolPositions(origin, segments, radius)
     local positions = {}
     for i = 1, segments do
         local angle = math.random() * math.pi * 2
-        table.insert(positions, origin + Vector3.new(math.cos(angle),0,math.sin(angle))*radius)
+        local dist = math.random(moveDistanceMin, moveDistanceMax)
+        table.insert(positions, origin + Vector3.new(math.cos(angle),0,math.sin(angle))*dist)
     end
     return positions
 end
@@ -190,7 +269,7 @@ local function createESPText(pos, index)
     label.BackgroundTransparency = 1
     label.TextColor3 = Color3.fromRGB(255,255,0)
     label.TextStrokeTransparency = 0
-    label.Font = Enum.Font.GothamBold   -- font game đẹp
+    label.Font = Enum.Font.GothamBold
     label.TextScaled = true
     label.Text = os.date("Last seen: %H:%M") .. " ("..index..")"
     label.Parent = billboard
@@ -204,12 +283,11 @@ local function createESPText(pos, index)
     part.Parent = workspace
 
     billboard.Adornee = part
-
     return {billboard = billboard, part = part}
 end
 
 --// Patrol / AFK Logic \\--
-spawn(function()
+task.spawn(function()
     while true do
         if AutoAFKNormal or AutoAFKAntiPlayer then
             local origin = RootPart.Position
@@ -218,17 +296,15 @@ spawn(function()
             for _, point in ipairs(patrolPoints) do
                 if not (AutoAFKNormal or AutoAFKAntiPlayer) then break end
 
-                -- Né player nếu AFKAntiPlayer
                 if AutoAFKAntiPlayer then
                     local plr = isPlayerNearby(avoidDistance)
                     moveAwayFromPlayer(plr)
                 end
 
-                -- Di chuyển patrol + nhảy ngẫu nhiên
                 moveToPosition(point)
-                task.wait(math.random(patrolPauseMin, patrolPauseMax))
+                local waitTime = math.random()*(patrolCooldownMax - patrolCooldownMin)+patrolCooldownMin
+                task.wait(waitTime)
 
-                -- Save Last seen
                 patrolCounter += 1
                 if patrolCounter >= maxPatrolBeforeSave then
                     patrolCounter = 0
@@ -236,7 +312,6 @@ spawn(function()
                     table.insert(savedPositions, point)
                     table.insert(espList, createESPText(point,#savedPositions))
 
-                    -- Reset nếu >5 save
                     if #savedPositions > 5 then
                         moveToPosition(savedPositions[1])
                         for _, esp in ipairs(espList) do
@@ -258,7 +333,11 @@ end)
 RunService.Heartbeat:Connect(function()
     if AutoAvoid then
         local plr = isPlayerNearby(avoidDistance)
-        moveAwayFromPlayer(plr)
+        if plr then
+            moveAwayFromPlayer(plr)
+            local waitTime = math.random()*(avoidCooldownMax - avoidCooldownMin)+avoidCooldownMin
+            task.wait(waitTime)
+        end
     end
 end)
 

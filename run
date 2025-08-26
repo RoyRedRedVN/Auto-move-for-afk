@@ -5,6 +5,7 @@ local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/Siri
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -28,190 +29,13 @@ local maxPatrolBeforeSave = math.random(3,5)
 
 local targetPlayerName = ""
 
---// Random Cooldowns \\--
+--// Random Cooldowns & Move Distance \\--
 local patrolCooldownMin = 3
 local patrolCooldownMax = 8
 local avoidCooldownMin = 0.3
 local avoidCooldownMax = 1.2
 local moveDistanceMin = 5
 local moveDistanceMax = 15
-
---// Rayfield UI \\--
-local Window = Rayfield:CreateWindow({Name = "NPC Patrol + MoveTo + Anti Player"})
-local MainTab = Window:CreateTab("Main")
-local SettingsTab = Window:CreateTab("Settings")
-
---// Toggles \\--
-MainTab:CreateToggle({
-    Name = "Anti Idle Normal",
-    CurrentValue = false,
-    Flag = "AFKNormal",
-    Callback = function(state)
-        AutoAFKNormal = state
-        if state then
-            AutoAFKAntiPlayer = false
-            AutoAvoid = false
-        else
-            for _, esp in ipairs(espList) do
-                esp.billboard:Destroy()
-                esp.part:Destroy()
-            end
-            savedPositions = {}
-            espList = {}
-        end
-    end
-})
-
-MainTab:CreateToggle({
-    Name = "Anti Idle Anti Player",
-    CurrentValue = false,
-    Flag = "AFKAntiPlayer",
-    Callback = function(state)
-        AutoAFKAntiPlayer = state
-        if state then
-            AutoAFKNormal = false
-            AutoAvoid = false
-        else
-            for _, esp in ipairs(espList) do
-                esp.billboard:Destroy()
-                esp.part:Destroy()
-            end
-            savedPositions = {}
-            espList = {}
-        end
-    end
-})
-
-MainTab:CreateToggle({
-    Name = "Auto Avoid / Anti Player",
-    CurrentValue = false,
-    Flag = "AutoAvoid",
-    Callback = function(state)
-        AutoAvoid = state
-        if state then
-            AutoAFKNormal = false
-            AutoAFKAntiPlayer = false
-        end
-    end
-})
-
---// Move to Nearest Player button
-MainTab:CreateButton({
-    Name = "Move to Nearest Player",
-    Callback = function()
-        local nearest = nil
-        local shortest = math.huge
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                local dist = (plr.Character.HumanoidRootPart.Position - RootPart.Position).Magnitude
-                if dist < shortest then
-                    shortest = dist
-                    nearest = plr
-                end
-            end
-        end
-        if nearest then
-            moveToPosition(nearest.Character.HumanoidRootPart.Position)
-            LocalPlayer:Chat("Done!")
-        end
-    end
-})
-
---// Move to Input Name Player
-SettingsTab:CreateInput({
-    Name = "Tên Player MoveTo",
-    PlaceholderText = "Nhập tên player...",
-    Text = "",
-    Flag = "MoveToName",
-    Callback = function(input)
-        targetPlayerName = input
-    end
-})
-
-MainTab:CreateButton({
-    Name = "Move to Name Player",
-    Callback = function()
-        local plr = Players:FindFirstChild(targetPlayerName)
-        if plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            moveToPosition(plr.Character.HumanoidRootPart.Position)
-            LocalPlayer:Chat("Done!")
-            targetPlayerName = ""
-        end
-    end
-})
-
---// Sliders for Cooldowns & Distance \\--
-SettingsTab:CreateSlider({
-    Name = "Patrol Cooldown Min",
-    Range = {1, 10},
-    Increment = 0.5,
-    Suffix = "s",
-    CurrentValue = patrolCooldownMin,
-    Flag = "PatrolCooldownMin",
-    Callback = function(value)
-        patrolCooldownMin = value
-    end
-})
-
-SettingsTab:CreateSlider({
-    Name = "Patrol Cooldown Max",
-    Range = {2, 15},
-    Increment = 0.5,
-    Suffix = "s",
-    CurrentValue = patrolCooldownMax,
-    Flag = "PatrolCooldownMax",
-    Callback = function(value)
-        patrolCooldownMax = value
-    end
-})
-
-SettingsTab:CreateSlider({
-    Name = "AutoAvoid Cooldown Min",
-    Range = {0.1, 3},
-    Increment = 0.1,
-    Suffix = "s",
-    CurrentValue = avoidCooldownMin,
-    Flag = "AvoidCooldownMin",
-    Callback = function(value)
-        avoidCooldownMin = value
-    end
-})
-
-SettingsTab:CreateSlider({
-    Name = "AutoAvoid Cooldown Max",
-    Range = {0.2, 5},
-    Increment = 0.1,
-    Suffix = "s",
-    CurrentValue = avoidCooldownMax,
-    Flag = "AvoidCooldownMax",
-    Callback = function(value)
-        avoidCooldownMax = value
-    end
-})
-
-SettingsTab:CreateSlider({
-    Name = "Move Distance Min",
-    Range = {3, 20},
-    Increment = 1,
-    Suffix = "studs",
-    CurrentValue = moveDistanceMin,
-    Flag = "MoveDistanceMin",
-    Callback = function(value)
-        moveDistanceMin = value
-    end
-})
-
-SettingsTab:CreateSlider({
-    Name = "Move Distance Max",
-    Range = {5, 30},
-    Increment = 1,
-    Suffix = "studs",
-    CurrentValue = moveDistanceMax,
-    Flag = "MoveDistanceMax",
-    Callback = function(value)
-        moveDistanceMax = value
-    end
-})
 
 --// Utils \\--
 local function isPlayerNearby(distance)
@@ -286,40 +110,99 @@ local function createESPText(pos, index)
     return {billboard = billboard, part = part}
 end
 
---// Patrol / AFK Logic \\--
+-- Kiểm tra nếu player đang tự điều khiển
+local function isPlayerMoving()
+    return UserInputService:IsKeyDown(Enum.KeyCode.W)
+        or UserInputService:IsKeyDown(Enum.KeyCode.A)
+        or UserInputService:IsKeyDown(Enum.KeyCode.S)
+        or UserInputService:IsKeyDown(Enum.KeyCode.D)
+        or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+end
+
+--// Rayfield UI \\--
+local Window = Rayfield:CreateWindow({Name = "NPC Patrol + MoveTo + Anti Player"})
+local MainTab = Window:CreateTab("Main")
+local SettingsTab = Window:CreateTab("Settings")
+
+-- Toggles
+MainTab:CreateToggle({Name="Anti Idle Normal", CurrentValue=false, Flag="AFKNormal",
+Callback=function(state)
+    AutoAFKNormal = state
+    if state then AutoAFKAntiPlayer=false; AutoAvoid=false else
+        for _,esp in ipairs(espList) do esp.billboard:Destroy(); esp.part:Destroy() end
+        savedPositions={}; espList={}
+    end
+end})
+
+MainTab:CreateToggle({Name="Anti Idle Anti Player", CurrentValue=false, Flag="AFKAntiPlayer",
+Callback=function(state)
+    AutoAFKAntiPlayer = state
+    if state then AutoAFKNormal=false; AutoAvoid=false else
+        for _,esp in ipairs(espList) do esp.billboard:Destroy(); esp.part:Destroy() end
+        savedPositions={}; espList={}
+    end
+end})
+
+MainTab:CreateToggle({Name="Auto Avoid / Anti Player", CurrentValue=false, Flag="AutoAvoid",
+Callback=function(state) AutoAvoid=state if state then AutoAFKNormal=false; AutoAFKAntiPlayer=false end end})
+
+-- Move to nearest player
+MainTab:CreateButton({Name="Move to Nearest Player", Callback=function()
+    local nearest=nil; local shortest=math.huge
+    for _,plr in ipairs(Players:GetPlayers()) do
+        if plr~=LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local dist=(plr.Character.HumanoidRootPart.Position - RootPart.Position).Magnitude
+            if dist<shortest then nearest=plr; shortest=dist end
+        end
+    end
+    if nearest then moveToPosition(nearest.Character.HumanoidRootPart.Position); LocalPlayer:Chat("Done!") end
+end})
+
+-- Move to input name
+SettingsTab:CreateInput({Name="Tên Player MoveTo", PlaceholderText="Nhập tên player...", Text="", Flag="MoveToName",
+Callback=function(input) targetPlayerName=input end})
+
+MainTab:CreateButton({Name="Move to Name Player", Callback=function()
+    local plr=Players:FindFirstChild(targetPlayerName)
+    if plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+        moveToPosition(plr.Character.HumanoidRootPart.Position)
+        LocalPlayer:Chat("Done!")
+        targetPlayerName=""
+    end
+end})
+
+-- Sliders for cooldowns & distance
+SettingsTab:CreateSlider({Name="Patrol Cooldown Min", Range={1,10}, Increment=0.5, Suffix="s", CurrentValue=patrolCooldownMin, Flag="PatrolCooldownMin", Callback=function(value) patrolCooldownMin=value end})
+SettingsTab:CreateSlider({Name="Patrol Cooldown Max", Range={2,15}, Increment=0.5, Suffix="s", CurrentValue=patrolCooldownMax, Flag="PatrolCooldownMax", Callback=function(value) patrolCooldownMax=value end})
+SettingsTab:CreateSlider({Name="AutoAvoid Cooldown Min", Range={0.1,3}, Increment=0.1, Suffix="s", CurrentValue=avoidCooldownMin, Flag="AvoidCooldownMin", Callback=function(value) avoidCooldownMin=value end})
+SettingsTab:CreateSlider({Name="AutoAvoid Cooldown Max", Range={0.2,5}, Increment=0.1, Suffix="s", CurrentValue=avoidCooldownMax, Flag="AvoidCooldownMax", Callback=function(value) avoidCooldownMax=value end})
+SettingsTab:CreateSlider({Name="Move Distance Min", Range={3,20}, Increment=1, Suffix="studs", CurrentValue=moveDistanceMin, Flag="MoveDistanceMin", Callback=function(value) moveDistanceMin=value end})
+SettingsTab:CreateSlider({Name="Move Distance Max", Range={5,30}, Increment=1, Suffix="studs", CurrentValue=moveDistanceMax, Flag="MoveDistanceMax", Callback=function(value) moveDistanceMax=value end})
+
+-- Patrol / AFK Logic
 task.spawn(function()
     while true do
         if AutoAFKNormal or AutoAFKAntiPlayer then
-            local origin = RootPart.Position
-            local patrolPoints = getPatrolPositions(origin, patrolSegments, patrolRadius)
-
-            for _, point in ipairs(patrolPoints) do
-                if not (AutoAFKNormal or AutoAFKAntiPlayer) then break end
-
-                if AutoAFKAntiPlayer then
-                    local plr = isPlayerNearby(avoidDistance)
-                    moveAwayFromPlayer(plr)
-                end
-
-                moveToPosition(point)
-                local waitTime = math.random()*(patrolCooldownMax - patrolCooldownMin)+patrolCooldownMin
-                task.wait(waitTime)
-
-                patrolCounter += 1
-                if patrolCounter >= maxPatrolBeforeSave then
-                    patrolCounter = 0
-                    maxPatrolBeforeSave = math.random(3,5)
-                    table.insert(savedPositions, point)
-                    table.insert(espList, createESPText(point,#savedPositions))
-
-                    if #savedPositions > 5 then
-                        moveToPosition(savedPositions[1])
-                        for _, esp in ipairs(espList) do
-                            esp.billboard:Destroy()
-                            esp.part:Destroy()
+            if isPlayerMoving() then task.wait(0.2) else
+                local origin = RootPart.Position
+                local patrolPoints = getPatrolPositions(origin, patrolSegments, patrolRadius)
+                for _, point in ipairs(patrolPoints) do
+                    if not (AutoAFKNormal or AutoAFKAntiPlayer) or isPlayerMoving() then break end
+                    if AutoAFKAntiPlayer then local plr=isPlayerNearby(avoidDistance); moveAwayFromPlayer(plr) end
+                    moveToPosition(point)
+                    local waitTime=math.random()*(patrolCooldownMax-patrolCooldownMin)+patrolCooldownMin
+                    task.wait(waitTime)
+                    patrolCounter+=1
+                    if patrolCounter>=maxPatrolBeforeSave then
+                        patrolCounter=0
+                        maxPatrolBeforeSave=math.random(3,5)
+                        table.insert(savedPositions,point)
+                        table.insert(espList,createESPText(point,#savedPositions))
+                        if #savedPositions>5 then
+                            moveToPosition(savedPositions[1])
+                            for _,esp in ipairs(espList) do esp.billboard:Destroy(); esp.part:Destroy() end
+                            savedPositions={}; espList={}
                         end
-                        savedPositions = {}
-                        espList = {}
                     end
                 end
             end
@@ -329,21 +212,21 @@ task.spawn(function()
     end
 end)
 
---// AutoAvoid Loop \\--
+-- AutoAvoid loop
 RunService.Heartbeat:Connect(function()
-    if AutoAvoid then
+    if AutoAvoid and not isPlayerMoving() then
         local plr = isPlayerNearby(avoidDistance)
         if plr then
             moveAwayFromPlayer(plr)
-            local waitTime = math.random()*(avoidCooldownMax - avoidCooldownMin)+avoidCooldownMin
+            local waitTime=math.random()*(avoidCooldownMax-avoidCooldownMin)+avoidCooldownMin
             task.wait(waitTime)
         end
     end
 end)
 
---// Respawn Handler \\--
+-- Respawn handler
 LocalPlayer.CharacterAdded:Connect(function(char)
-    Character = char
-    RootPart = char:WaitForChild("HumanoidRootPart")
-    Humanoid = char:WaitForChild("Humanoid")
+    Character=char
+    RootPart=char:WaitForChild("HumanoidRootPart")
+    Humanoid=char:WaitForChild("Humanoid")
 end)

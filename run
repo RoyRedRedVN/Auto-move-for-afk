@@ -1,69 +1,136 @@
--- // Simple Draggable UI for ESP // --
+-- LocalScript trong StarterPlayerScripts
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
+local player = Players.LocalPlayer
 
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "ESP_UI"
-ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-ScreenGui.ResetOnSpawn = false
+-- Default settings
+local WALK_RADIUS = 50
+local COOLDOWN = 2
+local autoWalkEnabled = true
+local autoJumpWhenSit = true
 
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 250, 0, 300)
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -150)
-MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true -- kéo thả được
-MainFrame.Parent = ScreenGui
+-- UI setup
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AutoWalkUI"
+screenGui.Parent = player:WaitForChild("PlayerGui")
 
-local UICorner = Instance.new("UICorner", MainFrame)
-UICorner.CornerRadius = UDim.new(0, 10)
+local frame = Instance.new("Frame", screenGui)
+frame.Size = UDim2.new(0, 220, 0, 190)
+frame.Position = UDim2.new(0, 20, 0, 200)
+frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+frame.BackgroundTransparency = 0.2
 
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 30)
-Title.BackgroundTransparency = 1
-Title.Text = "ESP Controller"
-Title.TextColor3 = Color3.fromRGB(255,255,255)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 18
-Title.Parent = MainFrame
+-- Toggle AutoWalk
+local toggleBtn = Instance.new("TextButton", frame)
+toggleBtn.Size = UDim2.new(1, -20, 0, 30)
+toggleBtn.Position = UDim2.new(0, 10, 0, 10)
+toggleBtn.Text = "AutoWalk: ON"
 
--- Toggle button
-local function createToggle(name, yPos, callback)
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(1, -20, 0, 30)
-	btn.Position = UDim2.new(0, 10, 0, yPos)
-	btn.BackgroundColor3 = Color3.fromRGB(50,50,50)
-	btn.TextColor3 = Color3.fromRGB(255,255,255)
-	btn.Font = Enum.Font.Gotham
-	btn.TextSize = 16
-	btn.Text = name .. ": OFF"
-	btn.Parent = MainFrame
+toggleBtn.MouseButton1Click:Connect(function()
+	autoWalkEnabled = not autoWalkEnabled
+	toggleBtn.Text = "AutoWalk: " .. (autoWalkEnabled and "ON" or "OFF")
+end)
 
-	local UICorner = Instance.new("UICorner", btn)
-	UICorner.CornerRadius = UDim.new(0,6)
+-- Walk radius box
+local radiusBox = Instance.new("TextBox", frame)
+radiusBox.Size = UDim2.new(1, -20, 0, 30)
+radiusBox.Position = UDim2.new(0, 10, 0, 50)
+radiusBox.PlaceholderText = "Walk Radius ("..WALK_RADIUS..")"
+radiusBox.Text = ""
 
-	local state = false
-	btn.MouseButton1Click:Connect(function()
-		state = not state
-		btn.Text = name .. ": " .. (state and "ON" or "OFF")
-		callback(state)
+radiusBox.FocusLost:Connect(function()
+	local val = tonumber(radiusBox.Text)
+	if val then
+		WALK_RADIUS = val
+		radiusBox.PlaceholderText = "Walk Radius ("..WALK_RADIUS..")"
+	end
+	radiusBox.Text = ""
+end)
+
+-- Cooldown box
+local cooldownBox = Instance.new("TextBox", frame)
+cooldownBox.Size = UDim2.new(1, -20, 0, 30)
+cooldownBox.Position = UDim2.new(0, 10, 0, 90)
+cooldownBox.PlaceholderText = "Cooldown ("..COOLDOWN.."s)"
+cooldownBox.Text = ""
+
+cooldownBox.FocusLost:Connect(function()
+	local val = tonumber(cooldownBox.Text)
+	if val then
+		COOLDOWN = val
+		cooldownBox.PlaceholderText = "Cooldown ("..COOLDOWN.."s)"
+	end
+	cooldownBox.Text = ""
+end)
+
+-- Toggle AutoJumpWhenSit
+local jumpBtn = Instance.new("TextButton", frame)
+jumpBtn.Size = UDim2.new(1, -20, 0, 30)
+jumpBtn.Position = UDim2.new(0, 10, 0, 130)
+jumpBtn.Text = "AutoJumpWhenSit: ON"
+
+jumpBtn.MouseButton1Click:Connect(function()
+	autoJumpWhenSit = not autoJumpWhenSit
+	jumpBtn.Text = "AutoJumpWhenSit: " .. (autoJumpWhenSit and "ON" or "OFF")
+end)
+
+-- lưu humanoid + root mỗi lần respawn
+local humanoid, root
+
+local function setupCharacter(character)
+	humanoid = character:WaitForChild("Humanoid")
+	root = character:WaitForChild("HumanoidRootPart")
+
+	-- Auto jump when sit
+	humanoid:GetPropertyChangedSignal("Sit"):Connect(function()
+		if autoJumpWhenSit and humanoid.Sit then
+			print("⚠️ Player Sit → auto jump")
+			if humanoid.SeatPart then
+				humanoid.Sit = false
+			end
+			humanoid.Jump = true
+		end
 	end)
 end
 
--- Example toggles hooking to Library
-createToggle("Highlight", 40, function(enabled)
-	Library.GlobalConfig.Highlighters = enabled
-end)
+setupCharacter(player.Character or player.CharacterAdded:Wait())
+player.CharacterAdded:Connect(setupCharacter)
 
-createToggle("Tracer", 80, function(enabled)
-	Library.GlobalConfig.Tracers = enabled
-end)
+-- Random point quanh player
+local function getRandomPoint()
+	local base = root.Position
+	local offset = Vector3.new(
+		math.random(-WALK_RADIUS, WALK_RADIUS),
+		0,
+		math.random(-WALK_RADIUS, WALK_RADIUS)
+	)
+	return base + offset
+end
 
-createToggle("Arrow", 120, function(enabled)
-	Library.GlobalConfig.Arrows = enabled
-end)
+-- Auto walk loop
+task.spawn(function()
+	while true do
+		if autoWalkEnabled and humanoid and root then
+			local point = getRandomPoint()
+			print("👉 MoveTo:", point)
+			humanoid:MoveTo(point)
 
-createToggle("Rainbow", 160, function(enabled)
-	Library.GlobalConfig.Rainbow = enabled
+			-- Timeout nếu MoveTo fail
+			local success = false
+			local finishedConn
+			finishedConn = humanoid.MoveToFinished:Connect(function(reached)
+				success = reached
+				finishedConn:Disconnect()
+			end)
+
+			local t0 = tick()
+			repeat task.wait(0.1) until success or tick() - t0 > 5
+			if not success then
+				print("❌ MoveTo fail → retry sau cooldown")
+			end
+
+			task.wait(COOLDOWN)
+		else
+			task.wait(0.5)
+		end
+	end
 end)

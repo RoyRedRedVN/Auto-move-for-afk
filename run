@@ -1,72 +1,81 @@
---// OrionLib
-local OrionLib = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Orion/main/source'))()
+--// Load Rayfield UI
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+end)
+if not success or not Rayfield then
+    warn("Không load được Rayfield UI")
+    return
+end
 
---// Config
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
 
+-- Config
 local Config = {
-    Highlighters = false,
-    Tracers = false,
+    Highlight = false,
+    Tracer = false,
     Distance = 500,
     Color = Color3.fromRGB(255,0,0),
     AutoJumpSit = true,
     AutoOffOnMove = true,
 }
 
---// ESP Core
+-- ESP storage
+local highlights = {}
+local tracers = {}
+
+-- Highlight
 local function createHighlight(char)
-    local highlight = Instance.new("Highlight")
-    highlight.Adornee = char
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.FillColor = Config.Color
-    highlight.OutlineColor = Color3.fromRGB(255,255,255)
-    highlight.Parent = char
-    return highlight
+    local h = Instance.new("Highlight")
+    h.Adornee = char
+    h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    h.FillColor = Config.Color
+    h.OutlineColor = Color3.fromRGB(255,255,255)
+    h.Parent = char
+    return h
 end
 
-local function createTracer(player)
+-- Tracer
+local function createTracer()
     local line = Drawing.new("Line")
-    line.Color = Config.Color
     line.Thickness = 2
     line.Transparency = 1
+    line.Color = Config.Color
     return line
 end
 
-local tracers = {}
-local highlights = {}
-
+-- Main loop
 RunService.RenderStepped:Connect(function()
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("Humanoid") then
         local humanoid = char:FindFirstChild("Humanoid")
 
-        -- Auto Jump khi Sit
+        -- Auto Jump Sit
         if Config.AutoJumpSit and humanoid.Sit then
             humanoid.Jump = true
         end
 
-        -- Tắt ESP khi người chơi di chuyển
+        -- Auto off khi di chuyển
         if Config.AutoOffOnMove and humanoid.MoveDirection.Magnitude > 0 then
-            Config.Highlighters = false
-            Config.Tracers = false
+            Config.Highlight = false
+            Config.Tracer = false
         end
     end
 
     for _,player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
             local root = player.Character.HumanoidRootPart
-            local pos, visible = Camera:WorldToViewportPoint(root.Position)
-            local distance = (root.Position - Camera.CFrame.Position).Magnitude
+            local pos, vis = Camera:WorldToViewportPoint(root.Position)
+            local dist = (root.Position - Camera.CFrame.Position).Magnitude
 
             -- Highlight
-            if Config.Highlighters then
+            if Config.Highlight then
                 if not highlights[player] then
                     highlights[player] = createHighlight(player.Character)
                 end
-                highlights[player].Enabled = distance <= Config.Distance
+                highlights[player].Enabled = dist <= Config.Distance
                 highlights[player].FillColor = Config.Color
             elseif highlights[player] then
                 highlights[player]:Destroy()
@@ -74,13 +83,13 @@ RunService.RenderStepped:Connect(function()
             end
 
             -- Tracer
-            if Config.Tracers then
+            if Config.Tracer then
                 if not tracers[player] then
-                    tracers[player] = createTracer(player)
+                    tracers[player] = createTracer()
                 end
-                if visible and distance <= Config.Distance then
+                if vis and dist <= Config.Distance then
                     tracers[player].From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
-                    tracers[player].To = Vector2.new(pos.X,pos.Y)
+                    tracers[player].To = Vector2.new(pos.X, pos.Y)
                     tracers[player].Visible = true
                     tracers[player].Color = Config.Color
                 else
@@ -93,54 +102,54 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
---// OrionLib UI
-local Window = OrionLib:MakeWindow({Name = "⚡ ESP Menu", HidePremium = false, SaveConfig = true, ConfigFolder = "ESP_Config"})
-
-local ESPTab = Window:MakeTab({
-    Name = "ESP",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
+--// Rayfield UI Setup
+local Window = Rayfield:CreateWindow({
+    Name = "⚡ ESP Menu (Rayfield)",
+    LoadingTitle = "Loading ESP...",
+    LoadingSubtitle = "By Red",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "ESP_Config",
+        FileName = "Config"
+    }
 })
 
-ESPTab:AddToggle({
+local Tab = Window:CreateTab("ESP", 4483362458)
+
+Tab:CreateToggle({
     Name = "Highlight",
-    Default = false,
-    Callback = function(state) Config.Highlighters = state end
+    CurrentValue = false,
+    Callback = function(val) Config.Highlight = val end
 })
 
-ESPTab:AddToggle({
+Tab:CreateToggle({
     Name = "Tracer",
-    Default = false,
-    Callback = function(state) Config.Tracers = state end
+    CurrentValue = false,
+    Callback = function(val) Config.Tracer = val end
 })
 
-ESPTab:AddSlider({
+Tab:CreateSlider({
     Name = "ESP Distance",
-    Min = 50,
-    Max = 1000,
-    Default = 500,
+    Range = {50, 1000},
     Increment = 10,
-    ValueName = "studs",
-    Callback = function(value) Config.Distance = value end
+    CurrentValue = 500,
+    Callback = function(val) Config.Distance = val end
 })
 
-ESPTab:AddColorpicker({
+Tab:CreateColorPicker({
     Name = "ESP Color",
-    Default = Color3.fromRGB(255,0,0),
-    Callback = function(Value) Config.Color = Value end
+    Color = Color3.fromRGB(255,0,0),
+    Callback = function(val) Config.Color = val end
 })
 
--- Auto Jump & Auto Off UI
-ESPTab:AddToggle({
+Tab:CreateToggle({
     Name = "Auto Jump khi Sit",
-    Default = true,
-    Callback = function(state) Config.AutoJumpSit = state end
+    CurrentValue = true,
+    Callback = function(val) Config.AutoJumpSit = val end
 })
 
-ESPTab:AddToggle({
+Tab:CreateToggle({
     Name = "Tắt ESP khi di chuyển",
-    Default = true,
-    Callback = function(state) Config.AutoOffOnMove = state end
+    CurrentValue = true,
+    Callback = function(val) Config.AutoOffOnMove = val end
 })
-
-OrionLib:Init()

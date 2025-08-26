@@ -1,13 +1,12 @@
--- Load WindUI
-local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/Example.lua"))()
+--// Load WindUI \\--
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/your-repo/WindUI/main/WindUI.lua"))()
 
--- Variables
+--// Variables \\--
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local RootPart = Character:WaitForChild("HumanoidRootPart")
 local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
 
 local autoAFKEnabled = false
 local autoAFKAvoidEnabled = false
@@ -16,61 +15,132 @@ local cooldown = 2
 local moveRadius = 30
 local avoidDistance = 15
 local backDistance = 10
-local replyKeywords = {"plss", "pls", "pet", "fruit", "money", "garden"}
+local replyKeywords = {"plss","pls","pet","fruit","money","garden"}
 local replyText = "no"
 
--- Create UI Window
-local Window = WindUI.new("AFK & Né Player", "WindUI")
-local MainTab = Window:Tab("Main")
-local SettingsTab = Window:Tab("Settings")
+--// Create WindUI Window \\--
+local Window = WindUI:CreateWindow({
+    Title = "AFK & Né Player",
+    Icon = "door-open",
+    Author = "by .ftgs",
+    Folder = "AFKHub",
+    Size = UDim2.fromOffset(480, 400),
+    Transparent = true,
+    Theme = "Dark",
+    Resizable = true,
+})
 
--- MainTab toggles
-MainTab:Toggle("Auto AFK", function(state)
-    autoAFKEnabled = state
-    if state then autoAFKAvoidEnabled = false end
-end)
+--// Tabs \\--
+local MainTab = Window:Tab({
+    Title = "Main",
+    Icon = "bird",
+})
 
-MainTab:Toggle("Auto AFK + Né Player", function(state)
-    autoAFKAvoidEnabled = state
-    if state then autoAFKEnabled = false end
-end)
+local SettingsTab = Window:Tab({
+    Title = "Settings",
+    Icon = "gear",
+})
 
-MainTab:Toggle("Auto Né Player", function(state)
-    autoAvoidEnabled = state
-end)
-
--- Settings
-SettingsTab:Slider("Cooldown (s)", 1, 10, cooldown, function(value)
-    cooldown = value
-end)
-
-SettingsTab:Slider("Phạm vi di chuyển", 10, 100, moveRadius, function(value)
-    moveRadius = value
-end)
-
-SettingsTab:Slider("Khoảng cách né", 5, 50, avoidDistance, function(value)
-    avoidDistance = value
-end)
-
-SettingsTab:Slider("Độ lùi khi né", 5, 30, backDistance, function(value)
-    backDistance = value
-end)
-
-SettingsTab:Textbox("Từ khóa phản hồi", table.concat(replyKeywords, ","), function(value)
-    replyKeywords = {}
-    for word in string.gmatch(value, "[^,]+") do
-        table.insert(replyKeywords, word:lower())
+--// MainTab toggles \\--
+MainTab:Toggle({
+    Text = "Auto AFK",
+    Default = false,
+    Callback = function(state)
+        autoAFKEnabled = state
+        if state then autoAFKAvoidEnabled = false end
     end
-end)
+})
 
-SettingsTab:Textbox("Reply text", replyText, function(value)
-    replyText = value
-end)
+MainTab:Toggle({
+    Text = "Auto AFK + Né Player",
+    Default = false,
+    Callback = function(state)
+        autoAFKAvoidEnabled = state
+        if state then autoAFKEnabled = false end
+    end
+})
 
--- Utility Functions
+MainTab:Toggle({
+    Text = "Auto Né Player",
+    Default = false,
+    Callback = function(state)
+        autoAvoidEnabled = state
+    end
+})
+
+--// Settings sliders \\--
+SettingsTab:Slider({
+    Text = "Cooldown (s)",
+    Default = cooldown,
+    Min = 1,
+    Max = 10,
+    Callback = function(value)
+        cooldown = value
+    end
+})
+
+SettingsTab:Slider({
+    Text = "Phạm vi di chuyển",
+    Default = moveRadius,
+    Min = 10,
+    Max = 100,
+    Callback = function(value)
+        moveRadius = value
+    end
+})
+
+SettingsTab:Slider({
+    Text = "Khoảng cách né",
+    Default = avoidDistance,
+    Min = 5,
+    Max = 50,
+    Callback = function(value)
+        avoidDistance = value
+    end
+})
+
+SettingsTab:Slider({
+    Text = "Độ lùi khi né",
+    Default = backDistance,
+    Min = 5,
+    Max = 30,
+    Callback = function(value)
+        backDistance = value
+    end
+})
+
+--// Settings input \\--
+SettingsTab:Input({
+    Title = "Từ khóa phản hồi",
+    Desc = "Các từ sẽ trigger bot reply, phân cách bằng dấu ,",
+    Value = table.concat(replyKeywords,","),
+    InputIcon = "bird",
+    Type = "Input",
+    Placeholder = "plss,pls,pet,...",
+    Callback = function(input)
+        replyKeywords = {}
+        for word in string.gmatch(input, "[^,]+") do
+            table.insert(replyKeywords, word:lower())
+        end
+    end
+})
+
+SettingsTab:Input({
+    Title = "Reply Text",
+    Desc = "Text bot sẽ gửi khi có từ khóa",
+    Value = replyText,
+    InputIcon = "chat",
+    Type = "Input",
+    Placeholder = "no",
+    Callback = function(input)
+        replyText = input
+    end
+})
+
+--// Utility Functions \\--
 local function getRandomPosition(radius)
     local angle = math.random() * math.pi * 2
-    local offset = Vector3.new(math.cos(angle), 0, math.sin(angle)) * radius
+    local offset = Vector3.new(math.cos(angle),0,math.sin(angle))*radius
     return RootPart.Position + offset
 end
 
@@ -78,9 +148,7 @@ local function isPlayerNearby(distance)
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
             local dist = (plr.Character.HumanoidRootPart.Position - RootPart.Position).Magnitude
-            if dist <= distance then
-                return plr
-            end
+            if dist <= distance then return plr end
         end
     end
     return nil
@@ -94,16 +162,14 @@ local function moveToPosition(pos)
     end
 end
 
--- Auto AFK Thread
+--// Auto AFK thread \\--
 RunService.Heartbeat:Connect(function()
     if autoAFKEnabled or autoAFKAvoidEnabled then
-        if Character:FindFirstChildOfClass("Humanoid").Sit then
-            Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
+        local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+        if Humanoid.Sit then
+            Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
         end
-
         local targetPos = getRandomPosition(moveRadius)
-
-        -- Né người chơi nếu bật autoAFKAvoid
         if autoAFKAvoidEnabled then
             local plr = isPlayerNearby(avoidDistance)
             if plr then
@@ -111,26 +177,25 @@ RunService.Heartbeat:Connect(function()
                 targetPos = RootPart.Position + dir * backDistance
             end
         end
-
         moveToPosition(targetPos)
         task.wait(cooldown)
     end
 end)
 
--- Auto Né Player Thread
+--// Auto né player \\--
 RunService.Heartbeat:Connect(function()
     if autoAvoidEnabled then
         local plr = isPlayerNearby(avoidDistance)
         if plr then
             local dir = (RootPart.Position - plr.Character.HumanoidRootPart.Position).Unit
-            local targetPos = RootPart.Position + dir * backDistance
+            local targetPos = RootPart.Position + dir*backDistance
             moveToPosition(targetPos)
         end
     end
 end)
 
--- Auto reply to messages
-Players.PlayerChatted:Connect(function(plr, msg)
+--// Auto reply \\--
+Players.PlayerChatted:Connect(function(plr,msg)
     for _, keyword in ipairs(replyKeywords) do
         if string.find(string.lower(msg), keyword) then
             LocalPlayer:Chat(replyText)

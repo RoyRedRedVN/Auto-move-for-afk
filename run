@@ -13,6 +13,9 @@ local Humanoid = Character:FindFirstChildOfClass("Humanoid")
 
 --// Variables \\--
 local autoAvoidEnabled = false
+local autoAFK = false
+local autoAFKFar = false
+
 local avoidDistance = 15
 local backDistance = 10
 local patrolRadius = 20
@@ -21,18 +24,53 @@ local patrolPause = 1
 local replyKeywords = {"plss","pls"}
 local replyText = "no"
 
+local savedPositions = {}
+local patrolCounter = 0
+local maxPatrolBeforeSave = math.random(3,5)
+
 --// Create Rayfield UI \\--
 local Window = Rayfield:CreateWindow({Name = "NPC Patrol + Né Player"})
 
 local MainTab = Window:CreateTab("Main")
 local SettingsTab = Window:CreateTab("Settings")
 
+--// Toggles \\--
 MainTab:CreateToggle({
     Name = "Auto Né Player",
     CurrentValue = false,
     Flag = "AutoAvoid",
     Callback = function(state)
         autoAvoidEnabled = state
+        if state then
+            autoAFK = false
+            autoAFKFar = false
+        end
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "Auto AFK",
+    CurrentValue = false,
+    Flag = "AutoAFK",
+    Callback = function(state)
+        autoAFK = state
+        if state then
+            autoAFKFar = false
+            autoAvoidEnabled = false
+        end
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "Auto AFK cách xa Player",
+    CurrentValue = false,
+    Flag = "AutoAFKFar",
+    Callback = function(state)
+        autoAFKFar = state
+        if state then
+            autoAFK = false
+            autoAvoidEnabled = false
+        end
     end
 })
 
@@ -113,6 +151,10 @@ local function moveAwayFromPlayer(plr)
         local dir = (RootPart.Position - plr.Character.HumanoidRootPart.Position).Unit
         local targetPos = RootPart.Position + dir*backDistance
         Humanoid:MoveTo(targetPos)
+        -- Nhảy thỉnh thoảng khi né
+        if Humanoid:GetState() ~= Enum.HumanoidStateType.Jumping and math.random() < 0.2 then
+            Humanoid.Jump = true
+        end
     end
 end
 
@@ -125,20 +167,57 @@ local function getPatrolPositions(origin, segments, radius)
     return positions
 end
 
---// NPC Patrol Logic \\--
+local function createESPPart(pos)
+    local part = Instance.new("Part")
+    part.Anchored = true
+    part.CanCollide = false
+    part.Size = Vector3.new(2,2,2)
+    part.Position = pos
+    part.Transparency = 0.5
+    part.Color = Color3.fromRGB(255,0,0)
+    part.Parent = workspace
+    return part
+end
+
+--// Patrol + AFK logic \\--
 spawn(function()
     while true do
-        local origin = RootPart.Position
-        local patrolPoints = getPatrolPositions(origin, patrolSegments, patrolRadius)
-        for _, point in ipairs(patrolPoints) do
-            Humanoid:MoveTo(point)
-            Humanoid.MoveToFinished:Wait()
-            task.wait(patrolPause)
+        if autoAFK or autoAFKFar then
+            local origin = RootPart.Position
+            local patrolPoints = getPatrolPositions(origin, patrolSegments, patrolRadius)
+
+            for _, point in ipairs(patrolPoints) do
+                -- Nhảy thỉnh thoảng khi đi
+                if Humanoid:GetState() ~= Enum.HumanoidStateType.Jumping and math.random() < 0.2 then
+                    Humanoid.Jump = true
+                end
+
+                if autoAFKFar then
+                    local plr = isPlayerNearby(avoidDistance)
+                    moveAwayFromPlayer(plr)
+                end
+
+                Humanoid:MoveTo(point)
+                Humanoid.MoveToFinished:Wait()
+                task.wait(patrolPause)
+
+                patrolCounter += 1
+                if patrolCounter >= maxPatrolBeforeSave then
+                    table.insert(savedPositions, point)
+                    createESPPart(point)
+                    patrolCounter = 0
+                    maxPatrolBeforeSave = math.random(3,5)
+                end
+            end
+
+            -- Quay về các điểm đã save
+            for _, savedPos in ipairs(savedPositions) do
+                Humanoid:MoveTo(savedPos)
+                Humanoid.MoveToFinished:Wait()
+                task.wait(patrolPause)
+            end
         end
-        -- Quay về chỗ cũ
-        Humanoid:MoveTo(origin)
-        Humanoid.MoveToFinished:Wait()
-        task.wait(patrolPause)
+        task.wait(0.1)
     end
 end)
 

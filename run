@@ -5,6 +5,7 @@ local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/Siri
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -151,7 +152,6 @@ local function moveAwayFromPlayer(plr)
         local dir = (RootPart.Position - plr.Character.HumanoidRootPart.Position).Unit
         local targetPos = RootPart.Position + dir*backDistance
         Humanoid:MoveTo(targetPos)
-        -- Nhảy thỉnh thoảng khi né
         if Humanoid:GetState() ~= Enum.HumanoidStateType.Jumping and math.random() < 0.2 then
             Humanoid.Jump = true
         end
@@ -167,32 +167,53 @@ local function getPatrolPositions(origin, segments, radius)
     return positions
 end
 
-local function createESPPart(pos)
+local function createESPText(pos, index)
+    local billboard = Instance.new("BillboardGui")
+    billboard.Size = UDim2.new(0,150,0,50)
+    billboard.Adornee = nil
+    billboard.AlwaysOnTop = true
+    billboard.Parent = workspace
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1,0,1,0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255,255,0)
+    label.TextStrokeTransparency = 0
+    label.Font = Enum.Font.SourceSansBold
+    label.TextScaled = true
+    label.Text = os.date("Last seen: %H:%M") .. " ("..index..")"
+    label.Parent = billboard
+
+    -- Gắn vào vị trí
     local part = Instance.new("Part")
     part.Anchored = true
     part.CanCollide = false
-    part.Size = Vector3.new(2,2,2)
+    part.Transparency = 1
+    part.Size = Vector3.new(1,1,1)
     part.Position = pos
-    part.Transparency = 0.5
-    part.Color = Color3.fromRGB(255,0,0)
     part.Parent = workspace
-    return part
+
+    billboard.Adornee = part
+
+    return {billboard = billboard, part = part}
 end
 
 --// Patrol + AFK logic \\--
+local espList = {} -- lưu text ESP
 spawn(function()
     while true do
-        if autoAFK or autoAFKFar then
+        if autoAFK or autoAFKFar or autoAvoidEnabled then
             local origin = RootPart.Position
             local patrolPoints = getPatrolPositions(origin, patrolSegments, patrolRadius)
 
             for _, point in ipairs(patrolPoints) do
-                -- Nhảy thỉnh thoảng khi đi
+                if not (autoAFK or autoAFKFar or autoAvoidEnabled) then break end
+
                 if Humanoid:GetState() ~= Enum.HumanoidStateType.Jumping and math.random() < 0.2 then
                     Humanoid.Jump = true
                 end
 
-                if autoAFKFar then
+                if autoAFKFar or autoAvoidEnabled then
                     local plr = isPlayerNearby(avoidDistance)
                     moveAwayFromPlayer(plr)
                 end
@@ -203,21 +224,28 @@ spawn(function()
 
                 patrolCounter += 1
                 if patrolCounter >= maxPatrolBeforeSave then
-                    table.insert(savedPositions, point)
-                    createESPPart(point)
                     patrolCounter = 0
                     maxPatrolBeforeSave = math.random(3,5)
+                    table.insert(savedPositions, point)
+                    table.insert(espList, createESPText(point,#savedPositions))
+
+                    -- Reset >5 save
+                    if #savedPositions > 5 then
+                        Humanoid:MoveTo(savedPositions[1])
+                        Humanoid.MoveToFinished:Wait()
+                        task.wait(patrolPause)
+                        for _, esp in ipairs(espList) do
+                            esp.billboard:Destroy()
+                            esp.part:Destroy()
+                        end
+                        savedPositions = {}
+                        espList = {}
+                    end
                 end
             end
-
-            -- Quay về các điểm đã save
-            for _, savedPos in ipairs(savedPositions) do
-                Humanoid:MoveTo(savedPos)
-                Humanoid.MoveToFinished:Wait()
-                task.wait(patrolPause)
-            end
+        else
+            task.wait(0.2)
         end
-        task.wait(0.1)
     end
 end)
 

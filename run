@@ -4,7 +4,6 @@ local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/Siri
 --// Services \\--
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
@@ -13,125 +12,128 @@ local RootPart = Character:WaitForChild("HumanoidRootPart")
 local Humanoid = Character:FindFirstChildOfClass("Humanoid")
 
 --// Variables \\--
-local autoAvoidEnabled = false
-local autoAFK = false
-local autoAFKFar = false
+local AutoAFKNormal = false
+local AutoAFKAntiPlayer = false
+local AutoAvoid = false
 
 local avoidDistance = 15
 local backDistance = 10
 local patrolRadius = 20
 local patrolSegments = 3
-local patrolPause = 1
-local replyKeywords = {"plss","pls"}
-local replyText = "no"
+local patrolPauseMin = 3
+local patrolPauseMax = 10
 
 local savedPositions = {}
+local espList = {}
 local patrolCounter = 0
 local maxPatrolBeforeSave = math.random(3,5)
 
---// Create Rayfield UI \\--
-local Window = Rayfield:CreateWindow({Name = "NPC Patrol + Né Player"})
+--// Move to input name
+local targetPlayerName = ""
 
+--// Rayfield UI \\--
+local Window = Rayfield:CreateWindow({Name = "NPC Patrol + MoveTo + Anti Player"})
 local MainTab = Window:CreateTab("Main")
 local SettingsTab = Window:CreateTab("Settings")
 
 --// Toggles \\--
 MainTab:CreateToggle({
-    Name = "Auto Né Player",
+    Name = "Anti Idle Normal",
+    CurrentValue = false,
+    Flag = "AFKNormal",
+    Callback = function(state)
+        AutoAFKNormal = state
+        if state then
+            AutoAFKAntiPlayer = false
+            AutoAvoid = false
+        else
+            for _, esp in ipairs(espList) do
+                esp.billboard:Destroy()
+                esp.part:Destroy()
+            end
+            savedPositions = {}
+            espList = {}
+        end
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "Anti Idle Anti Player",
+    CurrentValue = false,
+    Flag = "AFKAntiPlayer",
+    Callback = function(state)
+        AutoAFKAntiPlayer = state
+        if state then
+            AutoAFKNormal = false
+            AutoAvoid = false
+        else
+            for _, esp in ipairs(espList) do
+                esp.billboard:Destroy()
+                esp.part:Destroy()
+            end
+            savedPositions = {}
+            espList = {}
+        end
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "Auto Avoid / Anti Player",
     CurrentValue = false,
     Flag = "AutoAvoid",
     Callback = function(state)
-        autoAvoidEnabled = state
+        AutoAvoid = state
         if state then
-            autoAFK = false
-            autoAFKFar = false
+            AutoAFKNormal = false
+            AutoAFKAntiPlayer = false
         end
     end
 })
 
-MainTab:CreateToggle({
-    Name = "Auto AFK",
-    CurrentValue = false,
-    Flag = "AutoAFK",
-    Callback = function(state)
-        autoAFK = state
-        if state then
-            autoAFKFar = false
-            autoAvoidEnabled = false
+--// Move to Nearest Player button
+MainTab:CreateButton({
+    Name = "Move to Nearest Player",
+    Callback = function()
+        local nearest = nil
+        local shortest = math.huge
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                local dist = (plr.Character.HumanoidRootPart.Position - RootPart.Position).Magnitude
+                if dist < shortest then
+                    shortest = dist
+                    nearest = plr
+                end
+            end
+        end
+        if nearest then
+            Humanoid:MoveTo(nearest.Character.HumanoidRootPart.Position)
+            Humanoid.MoveToFinished:Wait()
+            LocalPlayer:Chat("Done!")
         end
     end
 })
 
-MainTab:CreateToggle({
-    Name = "Auto AFK cách xa Player",
-    CurrentValue = false,
-    Flag = "AutoAFKFar",
-    Callback = function(state)
-        autoAFKFar = state
-        if state then
-            autoAFK = false
-            autoAvoidEnabled = false
-        end
-    end
-})
-
---// Settings sliders \\--
-SettingsTab:CreateSlider({
-    Name = "Khoảng cách né",
-    Range = {5,50},
-    Increment = 1,
-    Suffix = "studs",
-    CurrentValue = avoidDistance,
-    Flag = "AvoidDistance",
-    Callback = function(value)
-        avoidDistance = value
-    end
-})
-
-SettingsTab:CreateSlider({
-    Name = "Độ lùi khi né",
-    Range = {5,30},
-    Increment = 1,
-    Suffix = "studs",
-    CurrentValue = backDistance,
-    Flag = "BackDistance",
-    Callback = function(value)
-        backDistance = value
-    end
-})
-
-SettingsTab:CreateSlider({
-    Name = "Bán kính patrol",
-    Range = {10,50},
-    Increment = 1,
-    Suffix = "studs",
-    CurrentValue = patrolRadius,
-    Flag = "PatrolRadius",
-    Callback = function(value)
-        patrolRadius = value
-    end
-})
-
+--// Move to Input Name Player
 SettingsTab:CreateInput({
-    Name = "Reply Keywords (comma separated)",
-    PlaceholderText = "plss,pls,...",
-    Text = table.concat(replyKeywords,","),
-    Flag = "ReplyKeywords",
+    Name = "Tên Player MoveTo",
+    PlaceholderText = "Nhập tên player...",
+    Text = "",
+    Flag = "MoveToName",
     Callback = function(input)
-        replyKeywords = {}
-        for word in string.gmatch(input, "[^,]+") do
-            table.insert(replyKeywords, word:lower())
-        end
+        targetPlayerName = input
     end
 })
 
-SettingsTab:CreateInput({
-    Name = "Reply Text",
-    PlaceholderText = "no",
-    Text = replyText,
-    Flag = "ReplyText",
-    Callback = function(input)
-        replyText = input
+MainTab:CreateButton({
+    Name = "Move to Name Player",
+    Callback = function()
+        local plr = Players:FindFirstChild(targetPlayerName)
+        if plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            Humanoid:MoveTo(plr.Character.HumanoidRootPart.Position)
+            Humanoid.MoveToFinished:Wait()
+            LocalPlayer:Chat("Done!")
+            targetPlayerName = ""
+        end
     end
 })
 
@@ -184,7 +186,6 @@ local function createESPText(pos, index)
     label.Text = os.date("Last seen: %H:%M") .. " ("..index..")"
     label.Parent = billboard
 
-    -- Gắn vào vị trí
     local part = Instance.new("Part")
     part.Anchored = true
     part.CanCollide = false
@@ -198,30 +199,32 @@ local function createESPText(pos, index)
     return {billboard = billboard, part = part}
 end
 
---// Patrol + AFK logic \\--
-local espList = {} -- lưu text ESP
+--// Patrol / AFK Logic \\--
 spawn(function()
     while true do
-        if autoAFK or autoAFKFar or autoAvoidEnabled then
+        if AutoAFKNormal or AutoAFKAntiPlayer then
             local origin = RootPart.Position
             local patrolPoints = getPatrolPositions(origin, patrolSegments, patrolRadius)
 
             for _, point in ipairs(patrolPoints) do
-                if not (autoAFK or autoAFKFar or autoAvoidEnabled) then break end
+                if not (AutoAFKNormal or AutoAFKAntiPlayer) then break end
 
+                -- Nhảy ngẫu nhiên
                 if Humanoid:GetState() ~= Enum.HumanoidStateType.Jumping and math.random() < 0.2 then
                     Humanoid.Jump = true
                 end
 
-                if autoAFKFar or autoAvoidEnabled then
+                -- Né player nếu AntiPlayer
+                if AutoAFKAntiPlayer then
                     local plr = isPlayerNearby(avoidDistance)
                     moveAwayFromPlayer(plr)
                 end
 
                 Humanoid:MoveTo(point)
                 Humanoid.MoveToFinished:Wait()
-                task.wait(patrolPause)
+                task.wait(math.random(patrolPauseMin, patrolPauseMax))
 
+                -- Save Last seen
                 patrolCounter += 1
                 if patrolCounter >= maxPatrolBeforeSave then
                     patrolCounter = 0
@@ -229,11 +232,11 @@ spawn(function()
                     table.insert(savedPositions, point)
                     table.insert(espList, createESPText(point,#savedPositions))
 
-                    -- Reset >5 save
+                    -- Reset nếu >5 save
                     if #savedPositions > 5 then
                         Humanoid:MoveTo(savedPositions[1])
                         Humanoid.MoveToFinished:Wait()
-                        task.wait(patrolPause)
+                        task.wait(math.random(patrolPauseMin, patrolPauseMax))
                         for _, esp in ipairs(espList) do
                             esp.billboard:Destroy()
                             esp.part:Destroy()
@@ -249,25 +252,15 @@ spawn(function()
     end
 end)
 
---// Auto Né player loop \\--
+--// AutoAvoid Loop \\--
 RunService.Heartbeat:Connect(function()
-    if autoAvoidEnabled then
+    if AutoAvoid then
         local plr = isPlayerNearby(avoidDistance)
         moveAwayFromPlayer(plr)
     end
 end)
 
---// Auto reply chat \\--
-Players.PlayerChatted:Connect(function(plr,msg)
-    for _, keyword in ipairs(replyKeywords) do
-        if string.find(string.lower(msg), keyword) then
-            LocalPlayer:Chat(replyText)
-            break
-        end
-    end
-end)
-
---// Respawn handler \\--
+--// Respawn Handler \\--
 LocalPlayer.CharacterAdded:Connect(function(char)
     Character = char
     RootPart = char:WaitForChild("HumanoidRootPart")

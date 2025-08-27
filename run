@@ -14,14 +14,17 @@ local Rayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/Siri
 local s = {
     On=false,
     Radius=30,
-    Cooldown=0.2, -- nhỏ để mượt
+    Cooldown=0.2,
     Speed=16,
-    JumpChance=0.25
+    JumpChance=0.25,
+    ESP=true
 }
 
 --// Danger map
 local dangerPositions = {}
 local espBoxes = {}
+local pathMarkers = {}
+local lastTarget = nil
 
 --// UI
 local w = Rayfield:CreateWindow({Name="Auto Walk"})
@@ -38,6 +41,7 @@ t:CreateSlider({Name="Radius", Range={5,200}, CurrentValue=s.Radius, Callback=fu
 t:CreateSlider({Name="Cooldown", Range={0.05,1}, Increment=0.05, CurrentValue=s.Cooldown, Callback=function(v) s.Cooldown=v end})
 t:CreateSlider({Name="WalkSpeed", Range={8,50}, CurrentValue=s.Speed, Callback=function(v) s.Speed=v end})
 t:CreateSlider({Name="Jump Chance", Range={0,1}, Increment=0.05, CurrentValue=s.JumpChance, Callback=function(v) s.JumpChance=v end})
+t:CreateToggle({Name="ESP Danger", CurrentValue=true, Callback=function(v) s.ESP=v end})
 
 --// Block input khi Auto Walk bật
 UserInputService.InputBegan:Connect(function(input)
@@ -64,29 +68,18 @@ local function checkDanger(pos)
     params.FilterDescendantsInstances = {char}
     params.FilterType = Enum.RaycastFilterType.Blacklist
 
-    -- check rớt
-    local ray = Workspace:Raycast(pos+Vector3.new(0,10,0), Vector3.new(0,-50,0), params)
+    local ray = Workspace:Raycast(pos + Vector3.new(0,10,0), Vector3.new(0,-50,0), params)
     if not ray then return true end
 
-    -- check tường trước 2 stud
     local front = Workspace:Raycast(pos, Vector3.new(0,0,2), params)
     if front then return true end
-
-    -- check humanoid đang sit gần điểm (vùng nhỏ để nhẹ hơn)
-    local region = Region3.new(pos-Vector3.new(1,1,1), pos+Vector3.new(1,1,1))
-    local parts = Workspace:FindPartsInRegion3WithIgnoreList(region, {char}, 20)
-    for _, p in pairs(parts) do
-        if p.Parent and p.Parent:FindFirstChildOfClass("Humanoid") then
-            local h = p.Parent:FindFirstChildOfClass("Humanoid")
-            if h.Sit then return true end
-        end
-    end
 
     return false
 end
 
 --// Tạo ESP cho vị trí nguy hiểm
 local function createESP(pos)
+    if not s.ESP then return end
     local part = Instance.new("Part")
     part.Size = Vector3.new(2,0.5,2)
     part.Anchored = true
@@ -105,7 +98,24 @@ local function createESP(pos)
     table.insert(espBoxes, part)
 end
 
---// Lấy vị trí random an toàn (mini-step)
+--// Tạo trail dấu chấm neon dưới chân
+local function createMarker(pos)
+    local part = Instance.new("Part")
+    part.Size = Vector3.new(0.5,0.1,0.5)
+    part.Anchored = true
+    part.CanCollide = false
+    part.Position = pos + Vector3.new(0,0.05,0)
+    part.Color = Color3.fromRGB(0,255,0)
+    part.Material = Enum.Material.Neon
+    part.Parent = Workspace
+    table.insert(pathMarkers, part)
+    task.spawn(function()
+        task.wait(10)
+        part:Destroy()
+    end)
+end
+
+--// Lấy vị trí random an toàn
 local function safeRandomPos()
     for i=1,15 do
         local a, d = math.random()*math.pi*2, math.random()*s.Radius
@@ -155,11 +165,19 @@ task.spawn(function()
 
             if not avoidFall() then
                 local dest = safeRandomPos()
-                -- chia mini-step 4 stud để đi mượt
+                if lastTarget and (dest - lastTarget).Magnitude < 1 then
+                    dest = safeRandomPos() -- tránh lặp y chang
+                end
+                lastTarget = dest
+
+                -- chia mini-step 4 stud
                 local dir = (dest - root.Position)
-                local step = dir.Unit * math.min(4, dir.Magnitude)
-                local newPos = root.Position + Vector3.new(step.X,0,step.Z)
-                hum:MoveTo(newPos)
+                if dir.Magnitude > 0.1 then
+                    local step = dir.Unit * math.min(4, dir.Magnitude)
+                    local newPos = root.Position + Vector3.new(step.X,0,step.Z)
+                    hum:MoveTo(newPos)
+                    createMarker(newPos)
+                end
 
                 if math.random() < s.JumpChance then hum.Jump = true end
             end

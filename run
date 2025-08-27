@@ -10,31 +10,6 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local root = character:WaitForChild("HumanoidRootPart")
 
---// Spawn NPC nếu chưa có
-local npc
-if not Workspace:FindFirstChild("NPC") then
-    npc = Instance.new("Model")
-    npc.Name = "NPC"
-    npc.Parent = Workspace
-
-    local npcRoot = Instance.new("Part")
-    npcRoot.Name = "HumanoidRootPart"
-    npcRoot.Size = Vector3.new(2,2,2)
-    npcRoot.Position = root.Position + Vector3.new(5,0,0)
-    npcRoot.Anchored = false
-    npcRoot.CanCollide = true
-    npcRoot.BrickColor = BrickColor.new("Bright yellow")
-    npcRoot.Parent = npc
-
-    local humanoid = Instance.new("Humanoid")
-    humanoid.Parent = npc
-else
-    npc = Workspace:FindFirstChild("NPC")
-end
-
-local npcRoot = npc:WaitForChild("HumanoidRootPart")
-local npcHumanoid = npc:WaitForChild("Humanoid")
-
 -- Table lưu các "dấu chấm"
 local pathPoints = {}
 
@@ -43,7 +18,7 @@ _G.NPCAutoFollow = true
 _G.DistanceThreshold = 5
 _G.AutoWalkAFK = true
 
--- Function thêm dấu chấm
+-- Function thêm dấu chấm theo player chính mình
 local function addDot(position)
     local dot = Instance.new("Part")
     dot.Name = "Dot"
@@ -55,6 +30,10 @@ local function addDot(position)
     dot.Parent = Workspace
     table.insert(pathPoints, dot)
 end
+
+-- "NPC" là bản sao Humanoid của chính player
+local npc = character -- chính là player của m
+local npcHumanoid = npc:WaitForChild("Humanoid")
 
 -- NPC di chuyển theo path
 local function moveNPC()
@@ -72,7 +51,7 @@ local function moveNPC()
 end
 spawn(moveNPC)
 
--- Auto spawn dot nếu bật Auto Walk AFK
+-- Auto spawn dot theo vị trí player
 RunService.RenderStepped:Connect(function()
     if _G.AutoWalkAFK and _G.NPCAutoFollow then
         if #pathPoints == 0 or (root.Position - pathPoints[#pathPoints].Position).Magnitude > _G.DistanceThreshold then
@@ -101,13 +80,13 @@ spawn(idleDance)
 
 --// Rayfield Window
 local Window = Rayfield:CreateWindow({
-    Name = "NPC Path + AFK Dance",
+    Name = "Self NPC Path + AFK Dance",
     LoadingTitle = "Loading...",
     LoadingSubtitle = "Red GPT Script",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "RedScripts",
-        FileName = "NPCPathAFK"
+        FileName = "SelfNPCPathAFK"
     }
 })
 

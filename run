@@ -4,8 +4,8 @@ local RunService = game:GetService("RunService")
 local Workspace = workspace
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
-
 local LocalPlayer = Players.LocalPlayer
+
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local HRP = Character:WaitForChild("HumanoidRootPart")
 local Humanoid = Character:WaitForChild("Humanoid")
@@ -40,7 +40,7 @@ local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Blacklist
 rayParams.FilterDescendantsInstances = {Character}
 
--- Load Rayfield
+-- Load Rayfield UI
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
 end)
@@ -69,7 +69,7 @@ local function isStandable(pos)
     local down = Workspace:Raycast(pos + Vector3.new(0,5,0), Vector3.new(0,-10,0), rayParams)
     if not down then return false end
     local upBlocked = Workspace:Raycast(pos + Vector3.new(0,1,0), Vector3.new(0,3,0), rayParams)
-    return not upBlocked, down and down.Position
+    return not upBlocked, down.Position
 end
 
 local function randomPos(r)
@@ -79,8 +79,10 @@ end
 local function addBlocked(pos)
     local k = vec3Key(pos)
     Blocked[k] = {pos=pos, expires=tick()+Config.BlockedTTL}
-    table.insert(BlockedOrder, k)
-    while #BlockedOrder > Config.MaxBlocked do Blocked[table.remove(BlockedOrder,1)] = nil end
+    table.insert(BlockedOrder,k)
+    while #BlockedOrder > Config.MaxBlocked do
+        Blocked[table.remove(BlockedOrder,1)] = nil
+    end
 end
 
 local function isBlocked(pos)
@@ -120,10 +122,7 @@ local function followPath(target)
             if not ok then addBlocked(wp.Position) return false end
         end
         return true
-    else
-        addBlocked(target)
-        return false
-    end
+    else addBlocked(target) return false end
 end
 
 local function tryPath(target)
@@ -140,7 +139,7 @@ local lastPos = HRP.Position
 local stuck = 0
 task.spawn(function()
     while task.wait(1) do
-        stuck = (HRP.Position - lastPos).Magnitude < 1.5 and stuck+1 or 0
+        stuck = (HRP.Position - lastPos).Magnitude < 1.5 and stuck + 1 or 0
         lastPos = HRP.Position
         if stuck >= Config.StuckCheck and stuck < Config.StuckTP then
             Humanoid.Jump = true
@@ -156,21 +155,17 @@ task.spawn(function()
     end
 end)
 
--- Idle Sit/Jump
+-- Idle sit/jump
 task.spawn(function()
-    while task.wait(math.random(Config.IdleSitTime[1], Config.IdleSitTime[2])) do
+    while task.wait(math.random(Config.IdleSitTime[1],Config.IdleSitTime[2])) do
         Humanoid.Sit = true
         task.wait(math.random(12,20))
-        if Config.JumpWhenSit then
-            Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        else
-            Humanoid.Sit = false
-        end
+        if Config.JumpWhenSit then Humanoid:ChangeState(Enum.HumanoidStateType.Jumping) else Humanoid.Sit = false end
     end
 end)
 
 task.spawn(function()
-    while task.wait(math.random(Config.IdleJumpTime[1], Config.IdleJumpTime[2])) do
+    while task.wait(math.random(Config.IdleJumpTime[1],Config.IdleJumpTime[2])) do
         Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
     end
 end)
@@ -183,17 +178,13 @@ local function autoReply(p,msg)
             if plrChar and plrChar:FindFirstChild("HumanoidRootPart") then
                 local dir = (HRP.Position - plrChar.HumanoidRootPart.Position)
                 dir = Vector3.new(dir.X,0,dir.Z).Unit
-                local backPos = HRP.Position + dir*Config.StepBack
-                if isStandable(backPos) then
-                    Humanoid:MoveTo(backPos)
-                else
-                    Humanoid:MoveTo(HRP.Position + Vector3.new(math.random(-10,10),0,math.random(-10,10)))
-                end
+                local backPos = HRP.Position + dir * Config.StepBack
+                if isStandable(backPos) then Humanoid:MoveTo(backPos) else Humanoid:MoveTo(HRP.Position + Vector3.new(math.random(-10,10),0,math.random(-10,10))) end
             end
             if math.random() < 0.3 then
-                task.delay(math.random(1,4), function()
+                task.delay(math.random(1,4),function()
                     if LocalPlayer.Character:FindFirstChild("Head") then
-                        game:GetService("Chat"):Chat(LocalPlayer.Character.Head, AutoReplyMessages[math.random(#AutoReplyMessages)], Enum.ChatColor.Red)
+                        game:GetService("Chat"):Chat(LocalPlayer.Character.Head,AutoReplyMessages[math.random(#AutoReplyMessages)],Enum.ChatColor.Red)
                     end
                 end)
             end
@@ -203,19 +194,61 @@ local function autoReply(p,msg)
 end
 
 for _,plr in ipairs(Players:GetPlayers()) do
-    if plr ~= LocalPlayer then
-        plr.Chatted:Connect(function(msg) autoReply(plr,msg) end)
-    end
+    if plr ~= LocalPlayer then plr.Chatted:Connect(function(msg) autoReply(plr,msg) end) end
 end
-
 Players.PlayerAdded:Connect(function(plr)
-    if plr ~= LocalPlayer then
-        plr.Chatted:Connect(function(msg) autoReply(plr,msg) end)
+    if plr ~= LocalPlayer then plr.Chatted:Connect(function(msg) autoReply(plr,msg) end) end
+end)
+
+-- Player control detection
+local PlayerControl = false
+UserInputService.InputBegan:Connect(function(input,gpe)
+    if not gpe and (input.KeyCode==Enum.KeyCode.W or input.KeyCode==Enum.KeyCode.A or input.KeyCode==Enum.KeyCode.S or input.KeyCode==Enum.KeyCode.D) then
+        PlayerControl = true
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode==Enum.KeyCode.W or input.KeyCode==Enum.KeyCode.A or input.KeyCode==Enum.KeyCode.S or input.KeyCode==Enum.KeyCode.D then
+        PlayerControl = false
     end
 end)
 
--- Detect if player is controlling character
-local PlayerControl = false
-UserInputService.InputBegan:Connect(function(input, gpe)
-    if not gpe and (input.KeyCode == Enum.KeyCode.W or input.KeyCode == Enum.KeyCode.A
-    or input.Key
+-- Main auto-walk + random dance
+task.spawn(function()
+    while task.wait(0.2) do
+        if not _G.AutoWalkEnabled then task.wait(1) continue end
+        if PlayerControl then continue end
+        if Humanoid.Sit and Config.JumpWhenSit then Humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end
+
+        local target=nil
+        local attempts=0
+        repeat
+            target=randomPos(Config.WalkRange)
+            attempts=attempts+1
+        until (not isBlocked(target)) and isStandable(target) or attempts>10
+
+        if not target then
+            if math.random() < 0.5 then
+                local dance = math.random(1,4)
+                ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer("/e dance"..dance,"All")
+                task.wait(5)
+            else
+                Humanoid:MoveTo(HRP.Position + Vector3.new(math.random(-6,6),0,math.random(-6,6)))
+            end
+        else
+            tryPath(target)
+        end
+    end
+end)
+
+-- Visual Dot
+local Dot = Instance.new("Part")
+Dot.Size = Vector3.new(1,0.2,1)
+Dot.Anchored = true
+Dot.CanCollide = false
+Dot.Material = Enum.Material.Neon
+Dot.Color = Color3.fromRGB(255,0,0)
+Dot.Parent = Workspace
+RunService.RenderStepped:Connect(function()
+    Dot.Position = HRP.Position - Vector3.new(0,HRP.Size.Y/2 + 0.1,0)
+end)

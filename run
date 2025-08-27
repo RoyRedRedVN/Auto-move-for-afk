@@ -1,171 +1,221 @@
-local Players=game:GetService("Players")
-local PathfindingService=game:GetService("PathfindingService")
-local RunService=game:GetService("RunService")
-local Workspace=workspace
-local ReplicatedStorage=game:GetService("ReplicatedStorage")
-local LocalPlayer=Players.LocalPlayer
-local Character=LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local HRP=Character:WaitForChild("HumanoidRootPart")
-local Humanoid=Character:WaitForChild("Humanoid")
+local Players = game:GetService("Players")
+local PathfindingService = game:GetService("PathfindingService")
+local RunService = game:GetService("RunService")
+local Workspace = workspace
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 
-local Config={
-WalkRange=30, StepBack=10, JumpWhenSit=true,
-IdleSitTime={25,65}, IdleJumpTime={10,35},
-StuckCheck=10, StuckTP=150,
-PathAgent={AgentRadius=3.5, AgentHeight=5, AgentCanJump=true, AgentCanClimb=true, AgentJumpHeight=7, AgentMaxSlope=45},
-BlockedTTL=120, MaxBlocked=100, CheckBlockedEvery=30, TPSearch=40, StuckTPTries=12
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HRP = Character:WaitForChild("HumanoidRootPart")
+local Humanoid = Character:WaitForChild("Humanoid")
+
+local Config = {
+    WalkRange = 30,
+    StepBack = 10,
+    JumpWhenSit = true,
+    IdleSitTime = {25,65},
+    IdleJumpTime = {10,35},
+    StuckCheck = 10,
+    StuckTP = 150,
+    PathAgent = {
+        AgentRadius = 3.5,
+        AgentHeight = 5,
+        AgentCanJump = true,
+        AgentCanClimb = true,
+        AgentJumpHeight = 7,
+        AgentMaxSlope = 45
+    },
+    BlockedTTL = 120,
+    MaxBlocked = 100,
+    CheckBlockedEvery = 30,
+    TPSearch = 40,
+    StuckTPTries = 12
 }
 
-local AutoReplyKeywords={"plss","pls","trade","pet","fruit","money","garden"}
-local AutoReplyMessages={"no","nah","sorry","nope","not giving"}
+local AutoReplyKeywords = {"plss","pls","trade","pet","fruit","money","garden"}
+local AutoReplyMessages = {"no","nah","sorry","nope","not giving"}
 
-local rayParams=RaycastParams.new()
-rayParams.FilterType=Enum.RaycastFilterType.Blacklist
-rayParams.FilterDescendantsInstances={Character}
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+rayParams.FilterDescendantsInstances = {Character}
 
-local success,Rayfield=pcall(function()
-return loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
+-- Load Rayfield
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
 end)
 if not success or not Rayfield then warn("Failed to load Rayfield") return end
 
-local Window=Rayfield:CreateWindow({Name="AFK Bot 🦅", LoadingTitle="AFK Bot", ConfigurationSaving={Enabled=true, FolderName="AFK_Config", FileName="AFK_Settings"}})
-local Tab=Window:CreateTab("Settings",4483362458)
+local Window = Rayfield:CreateWindow({
+    Name = "AFK Bot 🦅",
+    LoadingTitle = "AFK Bot",
+    ConfigurationSaving = {Enabled = true, FolderName = "AFK_Config", FileName = "AFK_Settings"}
+})
 
-_G.AutoWalkEnabled=true
+local Tab = Window:CreateTab("Settings", 4483362458)
+_G.AutoWalkEnabled = true
 Tab:CreateToggle({Name="Auto-Walk", CurrentValue=true, Flag="AutoWalkEnabled", Callback=function(v) _G.AutoWalkEnabled=v end})
 Tab:CreateToggle({Name="Jump When Sitting", CurrentValue=Config.JumpWhenSit, Flag="JumpSit", Callback=function(v) Config.JumpWhenSit=v end})
 Tab:CreateSlider({Name="Walk Range", Min=10, Max=100, CurrentValue=Config.WalkRange, Flag="WalkRange", Callback=function(v) Config.WalkRange=v end})
 Tab:CreateSlider({Name="Step Back", Min=5, Max=30, CurrentValue=Config.StepBack, Flag="StepBack", Callback=function(v) Config.StepBack=v end})
 
-local Blocked,BlockedOrder={},{}
-local function vec3Key(v) return string.format("%d_%d_%d",math.floor(v.X/2),math.floor(v.Y/2),math.floor(v.Z/2)) end
+-- Helpers
+local Blocked, BlockedOrder = {}, {}
+local function vec3Key(v)
+    return string.format("%d_%d_%d", math.floor(v.X/2), math.floor(v.Y/2), math.floor(v.Z/2))
+end
+
 local function isStandable(pos)
-local down=Workspace:Raycast(pos+Vector3.new(0,5,0),Vector3.new(0,-10,0),rayParams)
-if not down then return false end
-local upBlocked=Workspace:Raycast(pos+Vector3.new(0,1,0),Vector3.new(0,3,0),rayParams)
-return not upBlocked, down and down.Position
+    local down = Workspace:Raycast(pos + Vector3.new(0,5,0), Vector3.new(0,-10,0), rayParams)
+    if not down then return false end
+    local upBlocked = Workspace:Raycast(pos + Vector3.new(0,1,0), Vector3.new(0,3,0), rayParams)
+    return not upBlocked, down and down.Position
 end
-local function randomPos(r) return HRP.Position+Vector3.new(math.random(-r,r),0,math.random(-r,r)) end
+
+local function randomPos(r)
+    return HRP.Position + Vector3.new(math.random(-r,r),0,math.random(-r,r))
+end
+
 local function addBlocked(pos)
-local k=vec3Key(pos); Blocked[k]={pos=pos,expires=tick()+Config.BlockedTTL}; table.insert(BlockedOrder,k)
-while #BlockedOrder>Config.MaxBlocked do Blocked[table.remove(BlockedOrder,1)]=nil end
+    local k = vec3Key(pos)
+    Blocked[k] = {pos=pos, expires=tick()+Config.BlockedTTL}
+    table.insert(BlockedOrder, k)
+    while #BlockedOrder > Config.MaxBlocked do Blocked[table.remove(BlockedOrder,1)] = nil end
 end
+
 local function isBlocked(pos)
-local k=vec3Key(pos); local e=Blocked[k]
-if e then if e.expires<=tick() then Blocked[k]=nil return false else return true end end
-return false
+    local k = vec3Key(pos)
+    local e = Blocked[k]
+    if e then
+        if e.expires <= tick() then
+            Blocked[k] = nil
+            return false
+        else
+            return true
+        end
+    end
+    return false
 end
 
 task.spawn(function()
-while task.wait(Config.CheckBlockedEvery) do
-for k,v in pairs(Blocked) do
-local stand,_=isStandable(v.pos)
-if stand or v.expires<=tick() then Blocked[k]=nil end
-end
-end
+    while task.wait(Config.CheckBlockedEvery) do
+        for k,v in pairs(Blocked) do
+            local stand,_ = isStandable(v.pos)
+            if stand or v.expires <= tick() then Blocked[k] = nil end
+        end
+    end
 end)
 
+-- Pathfinding
 local function followPath(target)
-if isBlocked(target) then return false end
-local path=PathfindingService:CreatePath(Config.PathAgent)
-path:ComputeAsync(HRP.Position,target)
-if path.Status==Enum.PathStatus.Success then
-for _,wp in ipairs(path:GetWaypoints()) do
-if isBlocked(wp.Position) then addBlocked(wp.Position) return false end
-Humanoid:MoveTo(wp.Position)
-if wp.Action==Enum.PathWaypointAction.Jump then Humanoid.Jump=true end
-local ok=Humanoid.MoveToFinished:Wait(2)
-if not ok then addBlocked(wp.Position) return false end
-end
-return true
-else addBlocked(target) return false end
+    if isBlocked(target) then return false end
+    local path = PathfindingService:CreatePath(Config.PathAgent)
+    path:ComputeAsync(HRP.Position,target)
+    if path.Status == Enum.PathStatus.Success then
+        for _,wp in ipairs(path:GetWaypoints()) do
+            if isBlocked(wp.Position) then addBlocked(wp.Position) return false end
+            Humanoid:MoveTo(wp.Position)
+            if wp.Action == Enum.PathWaypointAction.Jump then Humanoid.Jump = true end
+            local ok = Humanoid.MoveToFinished:Wait(2)
+            if not ok then addBlocked(wp.Position) return false end
+        end
+        return true
+    else
+        addBlocked(target)
+        return false
+    end
 end
 
 local function tryPath(target)
-if followPath(target) then return true end
-for i=1,3 do
-local offset=Vector3.new(math.random(-8,8),0,math.random(-8,8))
-if followPath(target+offset) then return true end
-end
-return false
+    if followPath(target) then return true end
+    for i=1,3 do
+        local offset = Vector3.new(math.random(-8,8),0,math.random(-8,8))
+        if followPath(target + offset) then return true end
+    end
+    return false
 end
 
-local lastPos=HRP.Position; local stuck=0
+-- Anti-stuck
+local lastPos = HRP.Position
+local stuck = 0
 task.spawn(function()
-while task.wait(1) do
-stuck=(HRP.Position-lastPos).Magnitude<1.5 and stuck+1 or 0
-lastPos=HRP.Position
-if stuck>=Config.StuckCheck and stuck<Config.StuckTP then
-Humanoid.Jump=true
-Humanoid:MoveTo(HRP.Position+Vector3.new(math.random(-6,6),0,math.random(-6,6)))
-elseif stuck>=Config.StuckTP then
-for i=1,Config.StuckTPTries do
-local offset=Vector3.new(math.random(-Config.TPSearch,Config.TPSearch),0,math.random(-Config.TPSearch,Config.TPSearch))
-local ok,pos=isStandable(HRP.Position+offset)
-if ok then HRP.CFrame=CFrame.new(pos+Vector3.new(0,3,0)) break end
-end
-stuck=0
-end
-end
+    while task.wait(1) do
+        stuck = (HRP.Position - lastPos).Magnitude < 1.5 and stuck+1 or 0
+        lastPos = HRP.Position
+        if stuck >= Config.StuckCheck and stuck < Config.StuckTP then
+            Humanoid.Jump = true
+            Humanoid:MoveTo(HRP.Position + Vector3.new(math.random(-6,6),0,math.random(-6,6)))
+        elseif stuck >= Config.StuckTP then
+            for i=1,Config.StuckTPTries do
+                local offset = Vector3.new(math.random(-Config.TPSearch,Config.TPSearch),0,math.random(-Config.TPSearch,Config.TPSearch))
+                local ok,pos = isStandable(HRP.Position + offset)
+                if ok then HRP.CFrame = CFrame.new(pos + Vector3.new(0,3,0)) break end
+            end
+            stuck = 0
+        end
+    end
+end)
+
+-- Idle Sit/Jump
+task.spawn(function()
+    while task.wait(math.random(Config.IdleSitTime[1], Config.IdleSitTime[2])) do
+        Humanoid.Sit = true
+        task.wait(math.random(12,20))
+        if Config.JumpWhenSit then
+            Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        else
+            Humanoid.Sit = false
+        end
+    end
 end)
 
 task.spawn(function()
-while task.wait(math.random(Config.IdleSitTime[1],Config.IdleSitTime[2])) do
-Humanoid.Sit=true; task.wait(math.random(12,20))
-if Config.JumpWhenSit then Humanoid:ChangeState(Enum.HumanoidStateType.Jumping) else Humanoid.Sit=false end
-end
+    while task.wait(math.random(Config.IdleJumpTime[1], Config.IdleJumpTime[2])) do
+        Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
 end)
 
-task.spawn(function()
-while task.wait(math.random(Config.IdleJumpTime[1],Config.IdleJumpTime[2])) do
-Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-end
-end)
-
+-- Auto-reply
 local function autoReply(p,msg)
-for _,k in ipairs(AutoReplyKeywords) do
-if string.find(string.lower(msg),k) then
-local plrChar=p.Character
-if plrChar and plrChar:FindFirstChild("HumanoidRootPart") then
-local dir=(HRP.Position-plrChar.HumanoidRootPart.Position)
-dir=Vector3.new(dir.X,0,dir.Z).Unit
-local backPos=HRP.Position+dir*Config.StepBack
-if isStandable(backPos) then Humanoid:MoveTo(backPos) else Humanoid:MoveTo(HRP.Position+Vector3.new(math.random(-10,10),0,math.random(-10,10))) end
-end
-if math.random()<0.3 then task.delay(math.random(1,4),function()
-if LocalPlayer.Character:FindFirstChild("Head") then
-game:GetService("Chat"):Chat(LocalPlayer.Character.Head,AutoReplyMessages[math.random(#AutoReplyMessages)],Enum.ChatColor.Red)
-end
-end) end
-break
-end
-end
+    for _,k in ipairs(AutoReplyKeywords) do
+        if string.find(string.lower(msg),k) then
+            local plrChar = p.Character
+            if plrChar and plrChar:FindFirstChild("HumanoidRootPart") then
+                local dir = (HRP.Position - plrChar.HumanoidRootPart.Position)
+                dir = Vector3.new(dir.X,0,dir.Z).Unit
+                local backPos = HRP.Position + dir*Config.StepBack
+                if isStandable(backPos) then
+                    Humanoid:MoveTo(backPos)
+                else
+                    Humanoid:MoveTo(HRP.Position + Vector3.new(math.random(-10,10),0,math.random(-10,10)))
+                end
+            end
+            if math.random() < 0.3 then
+                task.delay(math.random(1,4), function()
+                    if LocalPlayer.Character:FindFirstChild("Head") then
+                        game:GetService("Chat"):Chat(LocalPlayer.Character.Head, AutoReplyMessages[math.random(#AutoReplyMessages)], Enum.ChatColor.Red)
+                    end
+                end)
+            end
+            break
+        end
+    end
 end
 
 for _,plr in ipairs(Players:GetPlayers()) do
-if plr~=LocalPlayer then plr.Chatted:Connect(function(msg) autoReply(plr,msg) end) end
+    if plr ~= LocalPlayer then
+        plr.Chatted:Connect(function(msg) autoReply(plr,msg) end)
+    end
 end
+
 Players.PlayerAdded:Connect(function(plr)
-if plr~=LocalPlayer then plr.Chatted:Connect(function(msg) autoReply(plr,msg) end) end
+    if plr ~= LocalPlayer then
+        plr.Chatted:Connect(function(msg) autoReply(plr,msg) end)
+    end
 end)
 
-task.spawn(function()
-while task.wait(0.2) do
-if not _G.AutoWalkEnabled then task.wait(1) continue end
-if Humanoid.Sit and Config.JumpWhenSit then Humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end
-local target=nil; local attempts=0
-repeat target=randomPos(Config.WalkRange); attempts=attempts+1
-until (not isBlocked(target)) and isStandable(target) or attempts>10
-if not target then
-if math.random()<0.5 then
-local dance=math.random(1,4)
-ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer("/e dance"..dance,"All")
-task.wait(5)
-else Humanoid:MoveTo(HRP.Position+Vector3.new(math.random(-6,6),0,math.random(-6,6))) end
-else tryPath(target) end
-end
-end)
-
-local Dot=Instance.new("Part")
-Dot.Size=Vector3.new(1,0.2,1); Dot.Anchored=true; Dot.CanCollide=false; Dot.Material=Enum.Material.Neon; Dot.Color=Color3.fromRGB(255,0,0); Dot.Parent=Workspace
-RunService.RenderStepped:Connect(function() Dot.Position=HRP.Position-Vector3.new(0,HRP.Size.Y/2+0.1,0) end)
+-- Detect if player is controlling character
+local PlayerControl = false
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if not gpe and (input.KeyCode == Enum.KeyCode.W or input.KeyCode == Enum.KeyCode.A
+    or input.Key

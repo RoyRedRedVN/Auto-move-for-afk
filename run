@@ -4,13 +4,34 @@ local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/Siri
 --// Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local root = character:WaitForChild("HumanoidRootPart")
 
--- NPC setup
-local npc = workspace:WaitForChild("NPC") -- thay bằng tên NPC của m
+--// Spawn NPC nếu chưa có
+local npc
+if not Workspace:FindFirstChild("NPC") then
+    npc = Instance.new("Model")
+    npc.Name = "NPC"
+    npc.Parent = Workspace
+
+    local npcRoot = Instance.new("Part")
+    npcRoot.Name = "HumanoidRootPart"
+    npcRoot.Size = Vector3.new(2,2,2)
+    npcRoot.Position = root.Position + Vector3.new(5,0,0)
+    npcRoot.Anchored = false
+    npcRoot.CanCollide = true
+    npcRoot.BrickColor = BrickColor.new("Bright yellow")
+    npcRoot.Parent = npc
+
+    local humanoid = Instance.new("Humanoid")
+    humanoid.Parent = npc
+else
+    npc = Workspace:FindFirstChild("NPC")
+end
+
 local npcRoot = npc:WaitForChild("HumanoidRootPart")
 local npcHumanoid = npc:WaitForChild("Humanoid")
 
@@ -26,12 +47,12 @@ _G.AutoWalkAFK = true
 local function addDot(position)
     local dot = Instance.new("Part")
     dot.Name = "Dot"
-    dot.Size = Vector3.new(1,1,1)
+    dot.Size = Vector3.new(2,2,2)
     dot.Position = position + Vector3.new(0,1,0)
     dot.Anchored = true
     dot.CanCollide = false
     dot.BrickColor = BrickColor.new("Bright red")
-    dot.Parent = workspace
+    dot.Parent = Workspace
     table.insert(pathPoints, dot)
 end
 
@@ -65,7 +86,7 @@ local function idleDance()
     while true do
         if _G.NPCAutoFollow and #pathPoints == 0 then
             local danceId = math.random(1,4)
-            print("/e dance "..danceId) -- thay bằng RemoteEvent hoặc command system game
+            print("/e dance "..danceId) -- replace bằng RemoteEvent nếu game hỗ trợ
             npcHumanoid.Jump = true
             wait(3)
             if _G.AutoWalkAFK then
@@ -78,7 +99,7 @@ local function idleDance()
 end
 spawn(idleDance)
 
---// Tạo Rayfield Window
+--// Rayfield Window
 local Window = Rayfield:CreateWindow({
     Name = "NPC Path + AFK Dance",
     LoadingTitle = "Loading...",
@@ -100,7 +121,7 @@ Tab:CreateToggle({
     Callback = function(value)
         _G.NPCAutoFollow = value
         if not value then
-            for i, dot in pairs(workspace:GetChildren()) do
+            for i, dot in pairs(Workspace:GetChildren()) do
                 if dot.Name == "Dot" then
                     dot:Destroy()
                 end
@@ -118,7 +139,7 @@ Tab:CreateToggle({
     Callback = function(value)
         _G.AutoWalkAFK = value
         if not value then
-            for i, dot in pairs(workspace:GetChildren()) do
+            for i, dot in pairs(Workspace:GetChildren()) do
                 if dot.Name == "Dot" then
                     dot:Destroy()
                 end
@@ -145,7 +166,7 @@ Tab:CreateSlider({
 Tab:CreateButton({
     Name = "Clear All Dots",
     Callback = function()
-        for i, dot in pairs(workspace:GetChildren()) do
+        for i, dot in pairs(Workspace:GetChildren()) do
             if dot.Name == "Dot" then
                 dot:Destroy()
             end

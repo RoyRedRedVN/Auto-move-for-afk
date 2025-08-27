@@ -19,21 +19,22 @@ local dotCooldown = 0.5
 -- Default settings
 _G.AutoWalkAFK = true
 _G.DistanceThreshold = 5
+_G.AutoMove = true
+_G.MoveSpeed = humanoid.WalkSpeed
 
--- Function thêm dot chỉ client
+-- Function thêm dot hình tròn, dẹp dưới chân player
 local function addDot(position)
     local dot = Instance.new("Part")
     dot.Name = "Dot"
-    dot.Size = Vector3.new(2,2,2)
-    dot.Position = position + Vector3.new(0,1,0)
+    dot.Shape = Enum.PartType.Ball -- tròn
+    dot.Size = Vector3.new(1,0.2,1) -- dẹp lép
+    dot.Position = Vector3.new(position.X, position.Y - root.Size.Y/2, position.Z)
     dot.Anchored = true
     dot.CanCollide = false
     dot.Transparency = 0.5
     dot.BrickColor = BrickColor.new("Bright red")
-    
-    -- Chỉ client thấy
+    dot.Material = Enum.Material.Neon -- nhìn nổi bật hơn
     dot.LocalTransparencyModifier = 0
-    
     dot.Parent = workspace
     table.insert(pathPoints, dot)
 end
@@ -51,11 +52,41 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- Khi hết dot → dance + jump + spawn lại dot
+-- Hàm smooth movement (cong cong)
+local function getSmoothDirection(startPos, endPos)
+    local randomOffset = Vector3.new(
+        math.random(-2,2), 
+        0, 
+        math.random(-2,2)
+    )
+    return (endPos + randomOffset - startPos).Unit
+end
+
+-- Auto move player theo dot cong cong
+RunService.Heartbeat:Connect(function(delta)
+    if _G.AutoWalkAFK and _G.AutoMove and #pathPoints > 0 then
+        local targetDot = pathPoints[1]
+        local distance = (targetDot.Position - root.Position).Magnitude
+        if distance > 1 then
+            local direction = getSmoothDirection(root.Position, targetDot.Position)
+            local randomCurve = Vector3.new(
+                math.sin(tick()*2)*0.5,
+                0,
+                math.cos(tick()*2)*0.5
+            )
+            humanoid:Move((direction + randomCurve).Unit * _G.MoveSpeed * delta)
+        else
+            targetDot:Destroy()
+            table.remove(pathPoints,1)
+        end
+    end
+end)
+
+-- Khi hết dot → dance + jump + spawn dot lại
 RunService.Heartbeat:Connect(function()
     if _G.AutoWalkAFK and #pathPoints == 0 then
         local danceId = math.random(1,4)
-        print("/e dance "..danceId) -- replace bằng RemoteEvent nếu game hỗ trợ
+        print("/e dance "..danceId)
         humanoid.Jump = true
         addDot(root.Position)
     end
@@ -63,13 +94,13 @@ end)
 
 --// Rayfield Window UI
 local Window = Rayfield:CreateWindow({
-    Name = "Player AFK Dot + Dance",
+    Name = "Player AFK AutoWalk + Dance",
     LoadingTitle = "Loading...",
     LoadingSubtitle = "Red GPT Script",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "RedScripts",
-        FileName = "PlayerAFKDots"
+        FileName = "PlayerAFKAutoWalk"
     }
 })
 
@@ -88,6 +119,16 @@ Tab:CreateToggle({
             end
             pathPoints = {}
         end
+    end
+})
+
+-- Toggle Auto Move
+Tab:CreateToggle({
+    Name = "Auto Move Player",
+    CurrentValue = _G.AutoMove,
+    Flag = "MoveToggle",
+    Callback = function(value)
+        _G.AutoMove = value
     end
 })
 

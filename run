@@ -9,24 +9,18 @@ local Workspace = game:GetService("Workspace")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local root = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
 
--- Table lưu các "dấu chấm"
+-- Table lưu dot
 local pathPoints = {}
+local lastDotTime = 0
+local dotCooldown = 0.5
 
--- Default global settings
-_G.NPCAutoFollow = true
-_G.DistanceThreshold = 5
+-- Default settings
 _G.AutoWalkAFK = true
+_G.DistanceThreshold = 5
 
--- Tạo NPC clone từ player thật
-local npc = character:Clone()
-npc.Name = "NPC_AFK"
-npc.Parent = Workspace
-
-local npcHumanoid = npc:WaitForChild("Humanoid")
-local npcRoot = npc:WaitForChild("HumanoidRootPart")
-
--- Function thêm dấu chấm
+-- Function thêm dot chỉ client
 local function addDot(position)
     local dot = Instance.new("Part")
     dot.Name = "Dot"
@@ -34,16 +28,19 @@ local function addDot(position)
     dot.Position = position + Vector3.new(0,1,0)
     dot.Anchored = true
     dot.CanCollide = false
+    dot.Transparency = 0.5
     dot.BrickColor = BrickColor.new("Bright red")
-    dot.Parent = Workspace
+    
+    -- Chỉ client thấy
+    dot.LocalTransparencyModifier = 0
+    
+    dot.Parent = workspace
     table.insert(pathPoints, dot)
 end
 
--- Auto spawn dot theo vị trí player thật
-local lastDotTime = 0
-local dotCooldown = 0.5 -- 0.5s giữa mỗi dot
+-- Auto spawn dot theo player
 RunService.RenderStepped:Connect(function()
-    if _G.AutoWalkAFK and _G.NPCAutoFollow then
+    if _G.AutoWalkAFK then
         if tick() - lastDotTime >= dotCooldown then
             local lastPos = #pathPoints > 0 and pathPoints[#pathPoints].Position or nil
             if not lastPos or (root.Position - lastPos).Magnitude > _G.DistanceThreshold then
@@ -54,59 +51,29 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- NPC di chuyển theo path
+-- Khi hết dot → dance + jump + spawn lại dot
 RunService.Heartbeat:Connect(function()
-    if _G.NPCAutoFollow and #pathPoints > 0 and npcHumanoid:GetState() ~= Enum.HumanoidStateType.Seated then
-        local targetDot = pathPoints[1]
-        npcHumanoid:MoveTo(targetDot.Position)
-        if (npcRoot.Position - targetDot.Position).Magnitude < 2 then
-            targetDot:Destroy()
-            table.remove(pathPoints,1)
-        end
-    end
-end)
-
--- Khi hết dot → dance + jump + cooldown + lập lại dot
-RunService.Heartbeat:Connect(function()
-    if _G.NPCAutoFollow and #pathPoints == 0 then
+    if _G.AutoWalkAFK and #pathPoints == 0 then
         local danceId = math.random(1,4)
         print("/e dance "..danceId) -- replace bằng RemoteEvent nếu game hỗ trợ
-        npcHumanoid.Jump = true
-        if _G.AutoWalkAFK then
-            addDot(root.Position)
-        end
+        humanoid.Jump = true
+        addDot(root.Position)
     end
 end)
 
---// Rayfield Window
+--// Rayfield Window UI
 local Window = Rayfield:CreateWindow({
-    Name = "Self NPC Path + AFK Dance",
+    Name = "Player AFK Dot + Dance",
     LoadingTitle = "Loading...",
     LoadingSubtitle = "Red GPT Script",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "RedScripts",
-        FileName = "SelfNPCPathAFK"
+        FileName = "PlayerAFKDots"
     }
 })
 
 local Tab = Window:CreateTab("Main", 4483362458)
-
--- Toggle NPC Auto Follow
-Tab:CreateToggle({
-    Name = "NPC Auto Follow",
-    CurrentValue = _G.NPCAutoFollow,
-    Flag = "NPCToggle",
-    Callback = function(value)
-        _G.NPCAutoFollow = value
-        if not value then
-            for _, dot in pairs(Workspace:GetChildren()) do
-                if dot.Name == "Dot" then dot:Destroy() end
-            end
-            pathPoints = {}
-        end
-    end
-})
 
 -- Toggle Auto Walk AFK
 Tab:CreateToggle({

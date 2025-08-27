@@ -1,305 +1,135 @@
---[[ 🦅 NPC Avoid Hub — Manual Control fix
-   - Rayfield UI + auto save config
-   - Manual control (WASD/Space/Shift) pauses hub & disables Anti-AFK, shows notif
-   - Patrol NPC, Avoid Player (Pathfinding), Avoid Eye Contact, Auto Reply
-   - Auto-stand if Sit, pathfinding jump handling
-]]
+-- // Full NPC Auto Walk + Anti Idle + Eye Contact Avoid
+-- // By Red & GPT 🦅
 
--- Load Rayfield
-local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
-
--- Window + config
-local Window = Rayfield:CreateWindow({
-  Name = "🦅 NPC Avoid Hub",
-  LoadingTitle = "Eagle mode",
-  LoadingSubtitle = "by Red GPT",
-  Theme = "Default",
-  ConfigurationSaving = {
-     Enabled = true,
-     FolderName = "RedHub",
-     FileName = "NPC_Avoid_Config"
-  }
-})
-
-local Main = Window:CreateTab("Main")
-local Settings = Window:CreateTab("Settings")
-
--- Services & locals
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local PathfindingService = game:GetService("PathfindingService")
-local UserInputService = game:GetService("UserInputService")
-local StarterGui = game:GetService("StarterGui")
-
+local VirtualUser = game:GetService("VirtualUser")
 local lp = Players.LocalPlayer
+
 local char = lp.Character or lp.CharacterAdded:Wait()
+local humanoid = char:WaitForChild("Humanoid")
 local root = char:WaitForChild("HumanoidRootPart")
-local hum  = char:WaitForChild("Humanoid")
 
-lp.CharacterAdded:Connect(function(c)
-  char = c
-  root = c:WaitForChild("HumanoidRootPart")
-  hum  = c:WaitForChild("Humanoid")
-end)
+-- Settings
+local WALK_RADIUS = 60
+local WALK_DELAY = 2
 
--- Defaults
-local avoidDist, backDist = 15, 10
-local patrolRadius, patrolSeg, patrolPause = 20, 3, 0.8
-local replyKeys, replyTxt = {"plss","pls"}, "no"
+-- State
+local AUTO_WALK = false
+local ANTI_IDLE = false
+local AVOID_EYE_CONTACT = false
 
--- Toggles & state
-local Toggles = {
-  AntiAFK = false,
-  AutoPatrol = false,
-  AvoidPlayer = false,
-  AvoidEye = true,
-  AutoReply = true,
-}
+-- Rayfield UI
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
--- Manual control state
-local manualControl = false
-local manualLastInput = 0
-local manualRestoreSnapshot = {} -- store previous toggles when manual starts
-local MANUAL_IDLE_TIMEOUT = 3 -- seconds to wait before restoring
+local Window = Rayfield:CreateWindow({
+    Name = "NPC Controller 🦅",
+    LoadingTitle = "NPC Brain Loading...",
+    LoadingSubtitle = "by RedGPT",
+    ConfigurationSaving = {
+       Enabled = true,
+       FolderName = "NPC_Save",
+       FileName = "npc_config"
+    },
+    Discord = {
+       Enabled = false
+    },
+    KeySystem = false,
+})
 
--- Utils
-local function sendNotif(title,text,duration)
-  pcall(function()
-    StarterGui:SetCore("SendNotification", {Title = title or "NPC Hub", Text = text or "", Duration = duration or 3})
-  end)
+local Tab = Window:CreateTab("Main 🕹️", 4483362458)
+
+-- Functions
+local function getRandomPoint()
+    local x = root.Position.X + math.random(-WALK_RADIUS, WALK_RADIUS)
+    local z = root.Position.Z + math.random(-WALK_RADIUS, WALK_RADIUS)
+    local y = root.Position.Y
+    return Vector3.new(x,y,z)
 end
 
-local function nearPlayer(maxD)
-  if not root then return end
-  local closest, cd = nil, maxD or 9e9
-  for _,p in ipairs(Players:GetPlayers()) do
-    if p ~= lp and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-      local hrp = p.Character.HumanoidRootPart
-      local d = (hrp.Position - root.Position).Magnitude
-      if d < cd then closest, cd = p, d end
+local function walkTo(point)
+    local path = PathfindingService:CreatePath()
+    path:ComputeAsync(root.Position, point)
+    if path.Status == Enum.PathStatus.Success then
+        local waypoints = path:GetWaypoints()
+        for _,wp in ipairs(waypoints) do
+            humanoid:MoveTo(wp.Position)
+            humanoid.MoveToFinished:Wait()
+        end
     end
-  end
-  return (closest and cd <= (maxD or avoidDist)) and closest or nil
 end
 
-local function isLookingAtMe(p)
-  local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-  if not hrp or not root then return false end
-  local look = hrp.CFrame.LookVector
-  local dir  = (root.Position - hrp.Position)
-  if dir.Magnitude == 0 then return false end
-  dir = dir.Unit
-  return look:Dot(dir) > 0.8
-end
+local function AvoidEyeContact()
+    if not AVOID_EYE_CONTACT then return end
+    for _,plr in ipairs(Players:GetPlayers()) do
+        if plr ~= lp and plr.Character and plr.Character:FindFirstChild("Head") then
+            local head = plr.Character.Head
+            local dirToMe = (root.Position - head.Position).Unit
+            local dot = head.CFrame.LookVector:Dot(dirToMe)
 
-local function smoothRotateRandom()
-  if not root then return end
-  local targetYaw = math.random()*math.pi*2
-  local basePos = root.Position
-  for i = 1, 15 do
-    local alpha = i/15
-    root.CFrame = CFrame.new(basePos) * CFrame.Angles(0, targetYaw*alpha, 0)
-    RunService.Heartbeat:Wait()
-  end
-end
-
--- Pathfinding move with sit & jump handling
-local function MoveToTarget(targetPos)
-  if not (hum and root and targetPos) then return end
-  local path = PathfindingService:CreatePath({
-    AgentRadius = 2,
-    AgentHeight = 5,
-    AgentCanJump = true,
-    AgentJumpHeight = 10,
-    AgentMaxSlope = 45,
-  })
-  path:ComputeAsync(root.Position, targetPos)
-
-  if path.Status ~= Enum.PathStatus.Success and path.Status ~= Enum.PathStatus.Complete then
-    hum:MoveTo(targetPos)
-    hum.MoveToFinished:Wait()
-    return
-  end
-
-  for _,wp in ipairs(path:GetWaypoints()) do
-    if hum.Sit then
-      hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-      task.wait(0.15)
+            if dot > 0.85 then -- đối phương nhìn mình
+                local dist = (root.Position - head.Position).Magnitude
+                if dist > 8 then
+                    local randomYaw = math.rad(math.random(-120,120))
+                    root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, randomYaw, 0)
+                end
+            end
+        end
     end
-    if wp.Action == Enum.PathWaypointAction.Jump then
-      hum.Jump = true
-    end
-    hum:MoveTo(wp.Position)
-    hum.MoveToFinished:Wait()
-  end
 end
 
-local function randomInRadius(origin, radius)
-  local a = math.random()*math.pi*2
-  return origin + Vector3.new(math.cos(a),0,math.sin(a))*radius
-end
-
--- Manual control handlers
-local function startManualControl()
-  if manualControl then
-    manualLastInput = os.clock()
-    return
-  end
-  manualControl = true
-  manualLastInput = os.clock()
-  -- snapshot toggles to restore later
-  manualRestoreSnapshot = {
-    AntiAFK = Toggles.AntiAFK,
-    AutoPatrol = Toggles.AutoPatrol,
-    AvoidPlayer = Toggles.AvoidPlayer,
-    AvoidEye = Toggles.AvoidEye,
-    AutoReply = Toggles.AutoReply,
-  }
-  -- disable things that would fight player input
-  Toggles.AntiAFK = false
-  Toggles.AutoPatrol = false
-  Toggles.AvoidPlayer = false
-  -- notify
-  sendNotif("Manual Control ON", "Auto features paused. Anti-AFK disabled.", 3)
-end
-
-local function stopManualControl()
-  if not manualControl then return end
-  manualControl = false
-  -- restore previous toggles
-  for k,v in pairs(manualRestoreSnapshot) do
-    Toggles[k] = v
-  end
-  manualRestoreSnapshot = {}
-  sendNotif("Manual Control OFF", "Auto features restored.", 3)
-end
-
--- Input detection: WASD, Space, Shift, Arrow keys, gamepad move
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-  if gameProcessed then return end
-  local k = input.KeyCode
-  if k == Enum.KeyCode.W or k == Enum.KeyCode.A or k == Enum.KeyCode.S or k == Enum.KeyCode.D
-     or k == Enum.KeyCode.Space or k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift
-     or k == Enum.KeyCode.Up or k == Enum.KeyCode.Down or k == Enum.KeyCode.Left or k == Enum.KeyCode.Right then
-    startManualControl()
-  end
-  -- also treat gamepad thumbstick movement as manual by tracking InputChanged
-end)
-
-UserInputService.InputChanged:Connect(function(input, gameProcessed)
-  if gameProcessed then return end
-  if input.UserInputType == Enum.UserInputType.Gamepad1 or input.UserInputType == Enum.UserInputType.MouseMovement then
-    -- if joystick move (value magnitude), start manual
-    if input.Position and (math.abs(input.Position.X) > 0 or math.abs(input.Position.Y) > 0) then
-      startManualControl()
-    end
-  end
-end)
-
--- Periodic check to stop manual if idle
+-- Loops
 task.spawn(function()
-  while true do
-    task.wait(0.5)
-    if manualControl and (os.clock() - manualLastInput) >= MANUAL_IDLE_TIMEOUT then
-      stopManualControl()
+    while task.wait() do
+        if AUTO_WALK then
+            local point = getRandomPoint()
+            walkTo(point)
+            AvoidEyeContact()
+            task.wait(WALK_DELAY)
+        end
     end
-  end
 end)
 
--- Also update last input timestamp on InputEnded for keys (so timeout resets)
-UserInputService.InputEnded:Connect(function(input, gameProcessed)
-  if gameProcessed then return end
-  local k = input.KeyCode
-  if k == Enum.KeyCode.W or k == Enum.KeyCode.A or k == Enum.KeyCode.S or k == Enum.KeyCode.D
-     or k == Enum.KeyCode.Space or k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift
-     or k == Enum.KeyCode.Up or k == Enum.KeyCode.Down or k == Enum.KeyCode.Left or k == Enum.KeyCode.Right then
-    manualLastInput = os.clock()
-  end
-end)
-
--- Loops (respect manualControl)
-local lastAvoid = 0
-RunService.Heartbeat:Connect(function()
-  if not (hum and root) then return end
-  if manualControl then return end -- nếu player đang điều khiển thì pause mọi auto hành vi
-
-  if not Toggles.AvoidPlayer then return end
-  if os.clock() - lastAvoid < 0.15 then return end
-  lastAvoid = os.clock()
-
-  local target = nearPlayer(avoidDist)
-  if target then
-    if Toggles.AvoidEye and isLookingAtMe(target) then
-      smoothRotateRandom()
-      return
-    end
-    local dir = (root.Position - target.Character.HumanoidRootPart.Position).Unit
-    local dest = root.Position + dir * backDist
-    MoveToTarget(dest)
-  end
-end)
-
--- Patrol loop (pause when manual)
 task.spawn(function()
-  while true do
-    task.wait(0.25)
-    if manualControl or not (Toggles.AutoPatrol and hum and root) then continue end
-    local origin = root.Position
-    local segs = math.clamp(patrolSeg, 2, 3)
-    for i=1, segs do
-      MoveToTarget(randomInRadius(origin, patrolRadius))
-      task.wait(patrolPause)
-      if manualControl then break end
+    while task.wait(30) do
+        if ANTI_IDLE then
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+        end
     end
-    if not manualControl then
-      MoveToTarget(origin)
-      task.wait(patrolPause)
-    end
-  end
 end)
 
--- Auto reply
-Players.PlayerChatted:Connect(function(p,msg)
-  if not Toggles.AutoReply then return end
-  local m = string.lower(tostring(msg or ""))
-  for _,k in ipairs(replyKeys) do
-    if m:find(k) then
-      lp:Chat(replyTxt)
-      break
-    end
-  end
-end)
+-- UI Toggles
+Tab:CreateToggle({
+    Name = "Auto Walk 🚶",
+    CurrentValue = false,
+    Flag = "AutoWalk",
+    Callback = function(Value)
+        AUTO_WALK = Value
+    end,
+})
 
--- Anti AFK (respects manualControl: when manualControl==true we already disabled AntiAFK and notify)
-local vu = game:GetService("VirtualUser")
-lp.Idled:Connect(function()
-  if Toggles.AntiAFK and not manualControl then
-    vu:CaptureController()
-    vu:ClickButton2(Vector2.new())
-  end
-end)
+Tab:CreateToggle({
+    Name = "Anti Idle ⏰",
+    CurrentValue = false,
+    Flag = "AntiIdle",
+    Callback = function(Value)
+        ANTI_IDLE = Value
+    end,
+})
 
--- UI
-Main:CreateToggle({Name="Anti AFK", Flag="AntiAFK", CurrentValue=Toggles.AntiAFK, Callback=function(v) Toggles.AntiAFK=v end})
-Main:CreateToggle({Name="Auto Patrol (2–3 đoạn)", Flag="AutoPatrol", CurrentValue=Toggles.AutoPatrol, Callback=function(v) Toggles.AutoPatrol=v end})
-Main:CreateToggle({Name="Avoid Players", Flag="AvoidPlayers", CurrentValue=Toggles.AvoidPlayer, Callback=function(v) Toggles.AvoidPlayer=v end})
-Main:CreateToggle({Name="Avoid Eye Contact 🦅", Flag="AvoidEye", CurrentValue=Toggles.AvoidEye, Callback=function(v) Toggles.AvoidEye=v end})
-Main:CreateToggle({Name="Auto Reply (pls→no)", Flag="AutoReply", CurrentValue=Toggles.AutoReply, Callback=function(v) Toggles.AutoReply=v end})
+Tab:CreateToggle({
+    Name = "Avoid Eye Contact 👀",
+    CurrentValue = false,
+    Flag = "AvoidEyeContact",
+    Callback = function(Value)
+        AVOID_EYE_CONTACT = Value
+    end,
+})
 
-Settings:CreateSlider({Name="Avoid Distance", Flag="AvoidDist", Range={5,60}, Increment=1, Suffix="studs", CurrentValue=avoidDist, Callback=function(v) avoidDist=v end})
-Settings:CreateSlider({Name="Step Back Distance", Flag="BackDist", Range={5,40}, Increment=1, Suffix="studs", CurrentValue=backDist, Callback=function(v) backDist=v end})
-Settings:CreateSlider({Name="Patrol Radius", Flag="PatrolRadius", Range={10,80}, Increment=1, Suffix="studs", CurrentValue=patrolRadius, Callback=function(v) patrolRadius=v end})
-Settings:CreateSlider({Name="Patrol Segments (2–3)", Flag="PatrolSeg", Range={2,3}, Increment=1, CurrentValue=patrolSeg, Callback=function(v) patrolSeg=v end})
-Settings:CreateSlider({Name="Patrol Pause", Flag="PatrolPause", Range={0,2}, Increment=0.1, Suffix="s", CurrentValue=patrolPause, Callback=function(v) patrolPause=v end})
-
-Settings:CreateInput({Name="Reply Keywords (comma)", Flag="ReplyKeys", PlaceholderText="plss,pls", Text=table.concat(replyKeys,","), Callback=function(text)
-  local t = {}
-  for w in string.gmatch(text or "", "[^,]+") do t[#t+1] = w:lower():gsub("^%s*(.-)%s*$","%1") end
-  if #t>0 then replyKeys = t end
-end})
-Settings:CreateInput({Name="Reply Text", Flag="ReplyTxt", PlaceholderText="no", Text=replyTxt, Callback=function(text)
-  if text and #text>0 then replyTxt = text end
-end})
-
--- Load saved config
-Rayfield:LoadConfiguration()
+Rayfield:Notify({
+    Title = "NPC Script",
+    Content = "🦅 Loaded! Use toggles to control NPC brain.",
+    Duration = 6.5
+})

@@ -1,16 +1,14 @@
---[[ 🦅 NPC Avoid Hub — by Red GPT
+--[[ 🦅 NPC Avoid Hub — Manual Control fix
    - Rayfield UI + auto save config
-   - Anti-AFK (toggle)
-   - Patrol NPC (2–3 đoạn rồi quay lại)
-   - Auto Avoid Player (Pathfinding, né tường/nhảy)
-   - Avoid Eye Contact (bị nhìn → quay hướng khác mượt)
-   - Auto reply (pls/plss => no)
+   - Manual control (WASD/Space/Shift) pauses hub & disables Anti-AFK, shows notif
+   - Patrol NPC, Avoid Player (Pathfinding), Avoid Eye Contact, Auto Reply
+   - Auto-stand if Sit, pathfinding jump handling
 ]]
 
---// Load Rayfield (official)
+-- Load Rayfield
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
---// Window + Config Saving
+-- Window + config
 local Window = Rayfield:CreateWindow({
   Name = "🦅 NPC Avoid Hub",
   LoadingTitle = "Eagle mode",
@@ -23,14 +21,16 @@ local Window = Rayfield:CreateWindow({
   }
 })
 
---// Tabs
 local Main = Window:CreateTab("Main")
 local Settings = Window:CreateTab("Settings")
 
---// Services & locals
+-- Services & locals
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local PathfindingService = game:GetService("PathfindingService")
+local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+
 local lp = Players.LocalPlayer
 local char = lp.Character or lp.CharacterAdded:Wait()
 local root = char:WaitForChild("HumanoidRootPart")
@@ -42,12 +42,12 @@ lp.CharacterAdded:Connect(function(c)
   hum  = c:WaitForChild("Humanoid")
 end)
 
---// Defaults (will be overridden by saved config after LoadConfiguration)
+-- Defaults
 local avoidDist, backDist = 15, 10
 local patrolRadius, patrolSeg, patrolPause = 20, 3, 0.8
 local replyKeys, replyTxt = {"plss","pls"}, "no"
 
---// Toggle states
+-- Toggles & state
 local Toggles = {
   AntiAFK = false,
   AutoPatrol = false,
@@ -56,7 +56,19 @@ local Toggles = {
   AutoReply = true,
 }
 
---// ===== Utils =====
+-- Manual control state
+local manualControl = false
+local manualLastInput = 0
+local manualRestoreSnapshot = {} -- store previous toggles when manual starts
+local MANUAL_IDLE_TIMEOUT = 3 -- seconds to wait before restoring
+
+-- Utils
+local function sendNotif(title,text,duration)
+  pcall(function()
+    StarterGui:SetCore("SendNotification", {Title = title or "NPC Hub", Text = text or "", Duration = duration or 3})
+  end)
+end
+
 local function nearPlayer(maxD)
   if not root then return end
   local closest, cd = nil, maxD or 9e9
@@ -74,15 +86,15 @@ local function isLookingAtMe(p)
   local hrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
   if not hrp or not root then return false end
   local look = hrp.CFrame.LookVector
-  local dir  = (root.Position - hrp.Position).Unit
-  return look:Dot(dir) > 0.8 -- “ánh mắt sắt bén” 🦅
+  local dir  = (root.Position - hrp.Position)
+  if dir.Magnitude == 0 then return false end
+  dir = dir.Unit
+  return look:Dot(dir) > 0.8
 end
 
--- nhẹ, không giật (15 frames)
 local function smoothRotateRandom()
   if not root then return end
   local targetYaw = math.random()*math.pi*2
-  local startCFrame = root.CFrame
   local basePos = root.Position
   for i = 1, 15 do
     local alpha = i/15
@@ -91,10 +103,9 @@ local function smoothRotateRandom()
   end
 end
 
--- Pathfinding move (né tường/nhảy qua). Tự “space” nếu đang Sit
+-- Pathfinding move with sit & jump handling
 local function MoveToTarget(targetPos)
   if not (hum and root and targetPos) then return end
-
   local path = PathfindingService:CreatePath({
     AgentRadius = 2,
     AgentHeight = 5,
@@ -102,20 +113,18 @@ local function MoveToTarget(targetPos)
     AgentJumpHeight = 10,
     AgentMaxSlope = 45,
   })
-
   path:ComputeAsync(root.Position, targetPos)
+
   if path.Status ~= Enum.PathStatus.Success and path.Status ~= Enum.PathStatus.Complete then
-    -- fallback: đi thẳng nếu path fail
     hum:MoveTo(targetPos)
     hum.MoveToFinished:Wait()
     return
   end
 
-  local waypoints = path:GetWaypoints()
-  for _,wp in ipairs(waypoints) do
+  for _,wp in ipairs(path:GetWaypoints()) do
     if hum.Sit then
-      hum:ChangeState(Enum.HumanoidStateType.GettingUp) -- như bấm Space
-      task.wait(0.2)
+      hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+      task.wait(0.15)
     end
     if wp.Action == Enum.PathWaypointAction.Jump then
       hum.Jump = true
@@ -125,17 +134,95 @@ local function MoveToTarget(targetPos)
   end
 end
 
--- Patrol points
 local function randomInRadius(origin, radius)
   local a = math.random()*math.pi*2
   return origin + Vector3.new(math.cos(a),0,math.sin(a))*radius
 end
 
---// ===== Loops =====
--- Avoid (throttle để đỡ compute liên tục)
+-- Manual control handlers
+local function startManualControl()
+  if manualControl then
+    manualLastInput = os.clock()
+    return
+  end
+  manualControl = true
+  manualLastInput = os.clock()
+  -- snapshot toggles to restore later
+  manualRestoreSnapshot = {
+    AntiAFK = Toggles.AntiAFK,
+    AutoPatrol = Toggles.AutoPatrol,
+    AvoidPlayer = Toggles.AvoidPlayer,
+    AvoidEye = Toggles.AvoidEye,
+    AutoReply = Toggles.AutoReply,
+  }
+  -- disable things that would fight player input
+  Toggles.AntiAFK = false
+  Toggles.AutoPatrol = false
+  Toggles.AvoidPlayer = false
+  -- notify
+  sendNotif("Manual Control ON", "Auto features paused. Anti-AFK disabled.", 3)
+end
+
+local function stopManualControl()
+  if not manualControl then return end
+  manualControl = false
+  -- restore previous toggles
+  for k,v in pairs(manualRestoreSnapshot) do
+    Toggles[k] = v
+  end
+  manualRestoreSnapshot = {}
+  sendNotif("Manual Control OFF", "Auto features restored.", 3)
+end
+
+-- Input detection: WASD, Space, Shift, Arrow keys, gamepad move
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+  if gameProcessed then return end
+  local k = input.KeyCode
+  if k == Enum.KeyCode.W or k == Enum.KeyCode.A or k == Enum.KeyCode.S or k == Enum.KeyCode.D
+     or k == Enum.KeyCode.Space or k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift
+     or k == Enum.KeyCode.Up or k == Enum.KeyCode.Down or k == Enum.KeyCode.Left or k == Enum.KeyCode.Right then
+    startManualControl()
+  end
+  -- also treat gamepad thumbstick movement as manual by tracking InputChanged
+end)
+
+UserInputService.InputChanged:Connect(function(input, gameProcessed)
+  if gameProcessed then return end
+  if input.UserInputType == Enum.UserInputType.Gamepad1 or input.UserInputType == Enum.UserInputType.MouseMovement then
+    -- if joystick move (value magnitude), start manual
+    if input.Position and (math.abs(input.Position.X) > 0 or math.abs(input.Position.Y) > 0) then
+      startManualControl()
+    end
+  end
+end)
+
+-- Periodic check to stop manual if idle
+task.spawn(function()
+  while true do
+    task.wait(0.5)
+    if manualControl and (os.clock() - manualLastInput) >= MANUAL_IDLE_TIMEOUT then
+      stopManualControl()
+    end
+  end
+end)
+
+-- Also update last input timestamp on InputEnded for keys (so timeout resets)
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+  if gameProcessed then return end
+  local k = input.KeyCode
+  if k == Enum.KeyCode.W or k == Enum.KeyCode.A or k == Enum.KeyCode.S or k == Enum.KeyCode.D
+     or k == Enum.KeyCode.Space or k == Enum.KeyCode.LeftShift or k == Enum.KeyCode.RightShift
+     or k == Enum.KeyCode.Up or k == Enum.KeyCode.Down or k == Enum.KeyCode.Left or k == Enum.KeyCode.Right then
+    manualLastInput = os.clock()
+  end
+end)
+
+-- Loops (respect manualControl)
 local lastAvoid = 0
 RunService.Heartbeat:Connect(function()
   if not (hum and root) then return end
+  if manualControl then return end -- nếu player đang điều khiển thì pause mọi auto hành vi
+
   if not Toggles.AvoidPlayer then return end
   if os.clock() - lastAvoid < 0.15 then return end
   lastAvoid = os.clock()
@@ -152,19 +239,22 @@ RunService.Heartbeat:Connect(function()
   end
 end)
 
--- Patrol loop (2–3 đoạn rồi về chỗ cũ)
+-- Patrol loop (pause when manual)
 task.spawn(function()
   while true do
     task.wait(0.25)
-    if not (Toggles.AutoPatrol and hum and root) then continue end
+    if manualControl or not (Toggles.AutoPatrol and hum and root) then continue end
     local origin = root.Position
-    local segs = math.clamp(patrolSeg, 2, 3) -- đúng yêu cầu 2–3 đoạn
+    local segs = math.clamp(patrolSeg, 2, 3)
     for i=1, segs do
       MoveToTarget(randomInRadius(origin, patrolRadius))
       task.wait(patrolPause)
+      if manualControl then break end
     end
-    MoveToTarget(origin)
-    task.wait(patrolPause)
+    if not manualControl then
+      MoveToTarget(origin)
+      task.wait(patrolPause)
+    end
   end
 end)
 
@@ -180,31 +270,28 @@ Players.PlayerChatted:Connect(function(p,msg)
   end
 end)
 
--- Anti AFK
+-- Anti AFK (respects manualControl: when manualControl==true we already disabled AntiAFK and notify)
 local vu = game:GetService("VirtualUser")
 lp.Idled:Connect(function()
-  if Toggles.AntiAFK then
+  if Toggles.AntiAFK and not manualControl then
     vu:CaptureController()
     vu:ClickButton2(Vector2.new())
   end
 end)
 
---// ===== UI =====
--- Toggles
+-- UI
 Main:CreateToggle({Name="Anti AFK", Flag="AntiAFK", CurrentValue=Toggles.AntiAFK, Callback=function(v) Toggles.AntiAFK=v end})
 Main:CreateToggle({Name="Auto Patrol (2–3 đoạn)", Flag="AutoPatrol", CurrentValue=Toggles.AutoPatrol, Callback=function(v) Toggles.AutoPatrol=v end})
 Main:CreateToggle({Name="Avoid Players", Flag="AvoidPlayers", CurrentValue=Toggles.AvoidPlayer, Callback=function(v) Toggles.AvoidPlayer=v end})
 Main:CreateToggle({Name="Avoid Eye Contact 🦅", Flag="AvoidEye", CurrentValue=Toggles.AvoidEye, Callback=function(v) Toggles.AvoidEye=v end})
 Main:CreateToggle({Name="Auto Reply (pls→no)", Flag="AutoReply", CurrentValue=Toggles.AutoReply, Callback=function(v) Toggles.AutoReply=v end})
 
--- Sliders
 Settings:CreateSlider({Name="Avoid Distance", Flag="AvoidDist", Range={5,60}, Increment=1, Suffix="studs", CurrentValue=avoidDist, Callback=function(v) avoidDist=v end})
 Settings:CreateSlider({Name="Step Back Distance", Flag="BackDist", Range={5,40}, Increment=1, Suffix="studs", CurrentValue=backDist, Callback=function(v) backDist=v end})
 Settings:CreateSlider({Name="Patrol Radius", Flag="PatrolRadius", Range={10,80}, Increment=1, Suffix="studs", CurrentValue=patrolRadius, Callback=function(v) patrolRadius=v end})
 Settings:CreateSlider({Name="Patrol Segments (2–3)", Flag="PatrolSeg", Range={2,3}, Increment=1, CurrentValue=patrolSeg, Callback=function(v) patrolSeg=v end})
 Settings:CreateSlider({Name="Patrol Pause", Flag="PatrolPause", Range={0,2}, Increment=0.1, Suffix="s", CurrentValue=patrolPause, Callback=function(v) patrolPause=v end})
 
--- Inputs
 Settings:CreateInput({Name="Reply Keywords (comma)", Flag="ReplyKeys", PlaceholderText="plss,pls", Text=table.concat(replyKeys,","), Callback=function(text)
   local t = {}
   for w in string.gmatch(text or "", "[^,]+") do t[#t+1] = w:lower():gsub("^%s*(.-)%s*$","%1") end
@@ -214,5 +301,5 @@ Settings:CreateInput({Name="Reply Text", Flag="ReplyTxt", PlaceholderText="no", 
   if text and #text>0 then replyTxt = text end
 end})
 
--- Load saved config (must be last)
+-- Load saved config
 Rayfield:LoadConfiguration()

@@ -1,135 +1,139 @@
--- // Full NPC Auto Walk + Anti Idle + Eye Contact Avoid
--- // By Red & GPT 🦅
-
+--// Services
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local PathfindingService = game:GetService("PathfindingService")
-local VirtualUser = game:GetService("VirtualUser")
-local lp = Players.LocalPlayer
-
-local char = lp.Character or lp.CharacterAdded:Wait()
-local humanoid = char:WaitForChild("Humanoid")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local hum = char:WaitForChild("Humanoid")
 local root = char:WaitForChild("HumanoidRootPart")
 
--- Settings
-local WALK_RADIUS = 60
-local WALK_DELAY = 2
+--// Rayfield
+local Rayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua"))()
 
--- State
-local AUTO_WALK = false
-local ANTI_IDLE = false
-local AVOID_EYE_CONTACT = false
+--// Settings
+local s = {On=false, Radius=30, Cooldown=2, Speed=16, JumpChance=0.25}
 
--- Rayfield UI
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+--// Danger map
+local dangerPositions = {}
 
-local Window = Rayfield:CreateWindow({
-    Name = "NPC Controller 🦅",
-    LoadingTitle = "NPC Brain Loading...",
-    LoadingSubtitle = "by RedGPT",
-    ConfigurationSaving = {
-       Enabled = true,
-       FolderName = "NPC_Save",
-       FileName = "npc_config"
-    },
-    Discord = {
-       Enabled = false
-    },
-    KeySystem = false,
-})
+--// UI
+local w = Rayfield:CreateWindow({Name="Auto Walk"})
+local t = w:CreateTab("Main")
 
-local Tab = Window:CreateTab("Main 🕹️", 4483362458)
+local label = t:CreateLabel("Save: can not go this way (0)")
+label.TextScaled = true
+label.Font = Enum.Font.Gotham
+label.TextColor3 = Color3.fromRGB(255,255,255)
+label.TextStrokeTransparency = 0.5
 
--- Functions
-local function getRandomPoint()
-    local x = root.Position.X + math.random(-WALK_RADIUS, WALK_RADIUS)
-    local z = root.Position.Z + math.random(-WALK_RADIUS, WALK_RADIUS)
-    local y = root.Position.Y
-    return Vector3.new(x,y,z)
-end
+t:CreateToggle({Name="Enabled", CurrentValue=false, Callback=function(v) s.On=v end})
+t:CreateSlider({Name="Radius", Range={5,200}, CurrentValue=s.Radius, Callback=function(v) s.Radius=v end})
+t:CreateSlider({Name="Cooldown", Range={0,10}, Increment=0.5, CurrentValue=s.Cooldown, Callback=function(v) s.Cooldown=v end})
+t:CreateSlider({Name="WalkSpeed", Range={8,50}, CurrentValue=s.Speed, Callback=function(v) s.Speed=v end})
+t:CreateSlider({Name="Jump Chance", Range={0,1}, Increment=0.05, CurrentValue=s.JumpChance, Callback=function(v) s.JumpChance=v end})
 
-local function walkTo(point)
-    local path = PathfindingService:CreatePath()
-    path:ComputeAsync(root.Position, point)
-    if path.Status == Enum.PathStatus.Success then
-        local waypoints = path:GetWaypoints()
-        for _,wp in ipairs(waypoints) do
-            humanoid:MoveTo(wp.Position)
-            humanoid.MoveToFinished:Wait()
+--// Block input khi Auto Walk bật
+UserInputService.InputBegan:Connect(function(input)
+    if s.On then
+        if input.UserInputType == Enum.UserInputType.Keyboard 
+        or input.UserInputType == Enum.UserInputType.Gamepad1 then
+            input:CaptureController()
         end
     end
+end)
+
+--// Kiểm tra chỗ nguy hiểm
+local function isDanger(pos)
+    for _, p in ipairs(dangerPositions) do
+        if (Vector3.new(pos.X,0,pos.Z) - Vector3.new(p.X,0,p.Z)).Magnitude < 6 then
+            return true
+        end
+    end
+    return false
 end
 
-local function AvoidEyeContact()
-    if not AVOID_EYE_CONTACT then return end
-    for _,plr in ipairs(Players:GetPlayers()) do
-        if plr ~= lp and plr.Character and plr.Character:FindFirstChild("Head") then
-            local head = plr.Character.Head
-            local dirToMe = (root.Position - head.Position).Unit
-            local dot = head.CFrame.LookVector:Dot(dirToMe)
+local function checkDanger(pos)
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = {char}
+    params.FilterType = Enum.RaycastFilterType.Blacklist
 
-            if dot > 0.85 then -- đối phương nhìn mình
-                local dist = (root.Position - head.Position).Magnitude
-                if dist > 8 then
-                    local randomYaw = math.rad(math.random(-120,120))
-                    root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, randomYaw, 0)
-                end
+    -- check rớt
+    local ray = Workspace:Raycast(pos+Vector3.new(0,10,0), Vector3.new(0,-50,0), params)
+    if not ray then return true end
+
+    -- check trước mặt tường (2 stud)
+    local front = Workspace:Raycast(pos, Vector3.new(0,0,2), params)
+    if front then return true end
+
+    -- check nếu có humanoid đang sit gần điểm
+    local region = Region3.new(pos-Vector3.new(2,2,2), pos+Vector3.new(2,2,2))
+    local parts = Workspace:FindPartsInRegion3WithIgnoreList(region, {char}, 50)
+    for _, p in pairs(parts) do
+        if p.Parent and p.Parent:FindFirstChildOfClass("Humanoid") then
+            local h = p.Parent:FindFirstChildOfClass("Humanoid")
+            if h.Sit then return true end
+        end
+    end
+
+    return false
+end
+
+--// Lấy vị trí random an toàn
+local function safeRandomPos()
+    for i=1,15 do
+        local a, d = math.random()*math.pi*2, math.random()*s.Radius
+        local pos = root.Position + Vector3.new(math.cos(a)*d,0,math.sin(a)*d)
+        if not isDanger(pos) and not checkDanger(pos) then
+            return pos
+        else
+            table.insert(dangerPositions, pos)
+            label:SetText("Save: can not go this way ("..#dangerPositions..")")
+        end
+    end
+    return root.Position
+end
+
+--// Tránh rớt (lùi lại)
+local function avoidFall()
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = {char}
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    local front = Workspace:Raycast(root.Position, root.CFrame.LookVector*5, params)
+    if not front then
+        local back = root.Position - root.CFrame.LookVector*5
+        hum:MoveTo(back)
+        task.wait(0.5)
+        return true
+    end
+    return false
+end
+
+--// Auto jump khi sit
+task.spawn(function()
+    while true do
+        if hum.Sit then
+            hum.Jump = true
+        end
+        task.wait(0.1)
+    end
+end)
+
+--// Main loop
+task.spawn(function()
+    math.randomseed(tick())
+    while true do
+        if s.On and char and root and hum then
+            hum.WalkSpeed = s.Speed
+
+            if not avoidFall() then
+                local dest = safeRandomPos()
+                hum:MoveTo(dest)
+                if math.random() < s.JumpChance then hum.Jump = true end
             end
-        end
-    end
-end
 
--- Loops
-task.spawn(function()
-    while task.wait() do
-        if AUTO_WALK then
-            local point = getRandomPoint()
-            walkTo(point)
-            AvoidEyeContact()
-            task.wait(WALK_DELAY)
+            task.wait(s.Cooldown)
+        else
+            task.wait(0.2)
         end
     end
 end)
-
-task.spawn(function()
-    while task.wait(30) do
-        if ANTI_IDLE then
-            VirtualUser:CaptureController()
-            VirtualUser:ClickButton2(Vector2.new())
-        end
-    end
-end)
-
--- UI Toggles
-Tab:CreateToggle({
-    Name = "Auto Walk 🚶",
-    CurrentValue = false,
-    Flag = "AutoWalk",
-    Callback = function(Value)
-        AUTO_WALK = Value
-    end,
-})
-
-Tab:CreateToggle({
-    Name = "Anti Idle ⏰",
-    CurrentValue = false,
-    Flag = "AntiIdle",
-    Callback = function(Value)
-        ANTI_IDLE = Value
-    end,
-})
-
-Tab:CreateToggle({
-    Name = "Avoid Eye Contact 👀",
-    CurrentValue = false,
-    Flag = "AvoidEyeContact",
-    Callback = function(Value)
-        AVOID_EYE_CONTACT = Value
-    end,
-})
-
-Rayfield:Notify({
-    Title = "NPC Script",
-    Content = "🦅 Loaded! Use toggles to control NPC brain.",
-    Duration = 6.5
-})

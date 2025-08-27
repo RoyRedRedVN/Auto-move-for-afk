@@ -18,7 +18,15 @@ _G.NPCAutoFollow = true
 _G.DistanceThreshold = 5
 _G.AutoWalkAFK = true
 
--- Function thêm dấu chấm theo player chính mình
+-- Tạo NPC clone từ player thật
+local npc = character:Clone()
+npc.Name = "NPC_AFK"
+npc.Parent = Workspace
+
+local npcHumanoid = npc:WaitForChild("Humanoid")
+local npcRoot = npc:WaitForChild("HumanoidRootPart")
+
+-- Function thêm dấu chấm
 local function addDot(position)
     local dot = Instance.new("Part")
     dot.Name = "Dot"
@@ -31,52 +39,44 @@ local function addDot(position)
     table.insert(pathPoints, dot)
 end
 
--- "NPC" là bản sao Humanoid của chính player
-local npc = character -- chính là player của m
-local npcHumanoid = npc:WaitForChild("Humanoid")
-
--- NPC di chuyển theo path
-local function moveNPC()
-    while true do
-        if _G.NPCAutoFollow and #pathPoints > 0 then
-            local targetDot = pathPoints[1]
-            npcHumanoid:MoveTo(targetDot.Position)
-            npcHumanoid.MoveToFinished:Wait()
-            targetDot:Destroy()
-            table.remove(pathPoints, 1)
-        else
-            wait(0.1)
-        end
-    end
-end
-spawn(moveNPC)
-
--- Auto spawn dot theo vị trí player
+-- Auto spawn dot theo vị trí player thật
+local lastDotTime = 0
+local dotCooldown = 0.5 -- 0.5s giữa mỗi dot
 RunService.RenderStepped:Connect(function()
     if _G.AutoWalkAFK and _G.NPCAutoFollow then
-        if #pathPoints == 0 or (root.Position - pathPoints[#pathPoints].Position).Magnitude > _G.DistanceThreshold then
-            addDot(root.Position)
+        if tick() - lastDotTime >= dotCooldown then
+            local lastPos = #pathPoints > 0 and pathPoints[#pathPoints].Position or nil
+            if not lastPos or (root.Position - lastPos).Magnitude > _G.DistanceThreshold then
+                addDot(root.Position)
+                lastDotTime = tick()
+            end
         end
     end
 end)
 
--- Khi hết dot → /e dance 1-4 + jump + cooldown + lập lại dot
-local function idleDance()
-    while true do
-        if _G.NPCAutoFollow and #pathPoints == 0 then
-            local danceId = math.random(1,4)
-            print("/e dance "..danceId) -- replace bằng RemoteEvent nếu game hỗ trợ
-            npcHumanoid.Jump = true
-            wait(3)
-            if _G.AutoWalkAFK then
-                addDot(root.Position)
-            end
-        else
-            wait(0.1)
+-- NPC di chuyển theo path
+RunService.Heartbeat:Connect(function()
+    if _G.NPCAutoFollow and #pathPoints > 0 and npcHumanoid:GetState() ~= Enum.HumanoidStateType.Seated then
+        local targetDot = pathPoints[1]
+        npcHumanoid:MoveTo(targetDot.Position)
+        if (npcRoot.Position - targetDot.Position).Magnitude < 2 then
+            targetDot:Destroy()
+            table.remove(pathPoints,1)
         end
     end
-end
-spawn(idleDance)
+end)
+
+-- Khi hết dot → dance + jump + cooldown + lập lại dot
+RunService.Heartbeat:Connect(function()
+    if _G.NPCAutoFollow and #pathPoints == 0 then
+        local danceId = math.random(1,4)
+        print("/e dance "..danceId) -- replace bằng RemoteEvent nếu game hỗ trợ
+        npcHumanoid.Jump = true
+        if _G.AutoWalkAFK then
+            addDot(root.Position)
+        end
+    end
+end)
 
 --// Rayfield Window
 local Window = Rayfield:CreateWindow({
@@ -100,10 +100,8 @@ Tab:CreateToggle({
     Callback = function(value)
         _G.NPCAutoFollow = value
         if not value then
-            for i, dot in pairs(Workspace:GetChildren()) do
-                if dot.Name == "Dot" then
-                    dot:Destroy()
-                end
+            for _, dot in pairs(Workspace:GetChildren()) do
+                if dot.Name == "Dot" then dot:Destroy() end
             end
             pathPoints = {}
         end
@@ -118,10 +116,8 @@ Tab:CreateToggle({
     Callback = function(value)
         _G.AutoWalkAFK = value
         if not value then
-            for i, dot in pairs(Workspace:GetChildren()) do
-                if dot.Name == "Dot" then
-                    dot:Destroy()
-                end
+            for _, dot in pairs(Workspace:GetChildren()) do
+                if dot.Name == "Dot" then dot:Destroy() end
             end
             pathPoints = {}
         end
@@ -145,10 +141,8 @@ Tab:CreateSlider({
 Tab:CreateButton({
     Name = "Clear All Dots",
     Callback = function()
-        for i, dot in pairs(Workspace:GetChildren()) do
-            if dot.Name == "Dot" then
-                dot:Destroy()
-            end
+        for _, dot in pairs(Workspace:GetChildren()) do
+            if dot.Name == "Dot" then dot:Destroy() end
         end
         pathPoints = {}
     end

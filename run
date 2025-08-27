@@ -7,14 +7,21 @@ local char = player.Character or player.CharacterAdded:Wait()
 local hum = char:WaitForChild("Humanoid")
 local root = char:WaitForChild("HumanoidRootPart")
 
---// Rayfield
+--// Rayfield UI
 local Rayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua"))()
 
 --// Settings
-local s = {On=false, Radius=30, Cooldown=2, Speed=16, JumpChance=0.25}
+local s = {
+    On=false,
+    Radius=30,
+    Cooldown=0.2, -- nhỏ để mượt
+    Speed=16,
+    JumpChance=0.25
+}
 
 --// Danger map
 local dangerPositions = {}
+local espBoxes = {}
 
 --// UI
 local w = Rayfield:CreateWindow({Name="Auto Walk"})
@@ -28,7 +35,7 @@ label.TextStrokeTransparency = 0.5
 
 t:CreateToggle({Name="Enabled", CurrentValue=false, Callback=function(v) s.On=v end})
 t:CreateSlider({Name="Radius", Range={5,200}, CurrentValue=s.Radius, Callback=function(v) s.Radius=v end})
-t:CreateSlider({Name="Cooldown", Range={0,10}, Increment=0.5, CurrentValue=s.Cooldown, Callback=function(v) s.Cooldown=v end})
+t:CreateSlider({Name="Cooldown", Range={0.05,1}, Increment=0.05, CurrentValue=s.Cooldown, Callback=function(v) s.Cooldown=v end})
 t:CreateSlider({Name="WalkSpeed", Range={8,50}, CurrentValue=s.Speed, Callback=function(v) s.Speed=v end})
 t:CreateSlider({Name="Jump Chance", Range={0,1}, Increment=0.05, CurrentValue=s.JumpChance, Callback=function(v) s.JumpChance=v end})
 
@@ -42,7 +49,7 @@ UserInputService.InputBegan:Connect(function(input)
     end
 end)
 
---// Kiểm tra chỗ nguy hiểm
+--// Kiểm tra vị trí nguy hiểm
 local function isDanger(pos)
     for _, p in ipairs(dangerPositions) do
         if (Vector3.new(pos.X,0,pos.Z) - Vector3.new(p.X,0,p.Z)).Magnitude < 6 then
@@ -61,13 +68,13 @@ local function checkDanger(pos)
     local ray = Workspace:Raycast(pos+Vector3.new(0,10,0), Vector3.new(0,-50,0), params)
     if not ray then return true end
 
-    -- check trước mặt tường (2 stud)
+    -- check tường trước 2 stud
     local front = Workspace:Raycast(pos, Vector3.new(0,0,2), params)
     if front then return true end
 
-    -- check nếu có humanoid đang sit gần điểm
-    local region = Region3.new(pos-Vector3.new(2,2,2), pos+Vector3.new(2,2,2))
-    local parts = Workspace:FindPartsInRegion3WithIgnoreList(region, {char}, 50)
+    -- check humanoid đang sit gần điểm (vùng nhỏ để nhẹ hơn)
+    local region = Region3.new(pos-Vector3.new(1,1,1), pos+Vector3.new(1,1,1))
+    local parts = Workspace:FindPartsInRegion3WithIgnoreList(region, {char}, 20)
     for _, p in pairs(parts) do
         if p.Parent and p.Parent:FindFirstChildOfClass("Humanoid") then
             local h = p.Parent:FindFirstChildOfClass("Humanoid")
@@ -78,7 +85,27 @@ local function checkDanger(pos)
     return false
 end
 
---// Lấy vị trí random an toàn
+--// Tạo ESP cho vị trí nguy hiểm
+local function createESP(pos)
+    local part = Instance.new("Part")
+    part.Size = Vector3.new(2,0.5,2)
+    part.Anchored = true
+    part.CanCollide = false
+    part.Transparency = 0.7
+    part.Position = pos + Vector3.new(0,0.25,0)
+    part.Parent = Workspace
+
+    local box = Instance.new("SelectionBox")
+    box.Adornee = part
+    box.LineThickness = 0.05
+    box.Color3 = Color3.fromRGB(255,0,0)
+    box.SurfaceTransparency = 0.8
+    box.Parent = part
+
+    table.insert(espBoxes, part)
+end
+
+--// Lấy vị trí random an toàn (mini-step)
 local function safeRandomPos()
     for i=1,15 do
         local a, d = math.random()*math.pi*2, math.random()*s.Radius
@@ -88,6 +115,7 @@ local function safeRandomPos()
         else
             table.insert(dangerPositions, pos)
             label:SetText("Save: can not go this way ("..#dangerPositions..")")
+            createESP(pos)
         end
     end
     return root.Position
@@ -102,13 +130,13 @@ local function avoidFall()
     if not front then
         local back = root.Position - root.CFrame.LookVector*5
         hum:MoveTo(back)
-        task.wait(0.5)
+        task.wait(0.2)
         return true
     end
     return false
 end
 
---// Auto jump khi sit
+--// Auto jump khi Player bị sit
 task.spawn(function()
     while true do
         if hum.Sit then
@@ -127,13 +155,18 @@ task.spawn(function()
 
             if not avoidFall() then
                 local dest = safeRandomPos()
-                hum:MoveTo(dest)
+                -- chia mini-step 4 stud để đi mượt
+                local dir = (dest - root.Position)
+                local step = dir.Unit * math.min(4, dir.Magnitude)
+                local newPos = root.Position + Vector3.new(step.X,0,step.Z)
+                hum:MoveTo(newPos)
+
                 if math.random() < s.JumpChance then hum.Jump = true end
             end
 
             task.wait(s.Cooldown)
         else
-            task.wait(0.2)
+            task.wait(0.1)
         end
     end
 end)

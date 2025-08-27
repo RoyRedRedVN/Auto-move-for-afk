@@ -53,7 +53,7 @@ local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Blacklist
 rayParams.FilterDescendantsInstances = {Character}
 
--- Helper
+-- Helper functions
 local function vec3Key(v)
     return string.format("%d_%d_%d", math.floor(v.X/2), math.floor(v.Y/2), math.floor(v.Z/2))
 end
@@ -66,7 +66,6 @@ local function isPositionStandable(pos)
     return true, down.Position
 end
 
--- Random nearby position xa hơn
 local function randomNearbyPosition(radius)
     local angle = math.random()*math.pi*2
     local distance = math.random(math.floor(radius/2), math.floor(radius))
@@ -246,48 +245,56 @@ Players.PlayerAdded:Connect(function(plr)
     if plr~=LocalPlayer then plr.Chatted:Connect(function(msg) autoReplyNo(plr,msg) end) end
 end)
 
+-- ==========================
 -- Rayfield UI
+-- ==========================
 local Window=Rayfield:CreateWindow({
     Name="AFK Bot",
     LoadingTitle="Red AFK Bot Loading...",
     LoadingSubtitle="GenZ Mode ON 😎",
     ConfigurationSaving={Enabled=true,FolderName="RedAFKBot",FileName="Config"}
 })
+task.wait(0.1) -- đảm bảo window fully loaded
 
-local AutoWalkToggle=Window:CreateToggle({
+local MainTab = Window:CreateTab("Main")
+
+-- Toggles & Sliders
+local AutoWalkToggle=MainTab:CreateToggle({
     Name="Auto Walk",
     CurrentValue=true,
-    Flag="AutoWalkToggle",
+    Flag="RedAutoWalkToggle",
     Callback=function(value) _G.AutoWalkEnabled=value end
 })
 _G.AutoWalkEnabled=true
 
-local WalkRangeSlider=Window:CreateSlider({
+local WalkRangeSlider=MainTab:CreateSlider({
     Name="Walk Range",
-    Range={30,150}, -- từ 30 → 150
+    Range={30,150},
     Increment=1,
     Suffix="studs",
     CurrentValue=Config.WalkRange,
-    Flag="WalkRangeSlider",
+    Flag="RedWalkRangeSlider",
     Callback=function(value) Config.WalkRange=value end
 })
 
-local AutoReplyToggle=Window:CreateToggle({
+local AutoReplyToggle=MainTab:CreateToggle({
     Name="Auto Reply",
     CurrentValue=true,
-    Flag="AutoReplyToggle",
+    Flag="RedAutoReplyToggle",
     Callback=function(value) _G.AutoReplyEnabled=value end
 })
 
-local HelloToggle=Window:CreateToggle({
+local HelloToggle=MainTab:CreateToggle({
     Name="Random Hello Player",
     CurrentValue=true,
-    Flag="HelloToggle",
+    Flag="RedHelloToggle",
     Callback=function(value) _G.HelloEnabled=value end
 })
 _G.HelloEnabled=true
 
+-- ==========================
 -- Main auto-walk loop
+-- ==========================
 task.spawn(function()
     while task.wait(0.2) do
         if not _G.AutoWalkEnabled then continue end
@@ -312,7 +319,9 @@ task.spawn(function()
     end
 end)
 
+-- ==========================
 -- Random hello player occasionally
+-- ==========================
 task.spawn(function()
     while task.wait(60) do
         if not _G.AutoWalkEnabled or not _G.HelloEnabled then continue end
@@ -336,7 +345,9 @@ task.spawn(function()
     end
 end)
 
+-- ==========================
 -- Cleanup expired blocked paths
+-- ==========================
 task.spawn(function()
     while task.wait(60) do
         for key,entry in pairs(BlockedPaths) do

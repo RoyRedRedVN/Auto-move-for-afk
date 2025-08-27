@@ -1,16 +1,16 @@
 -- ===============================
--- 🦅 AFK Bot + Rayfield UI + Dance + Adjustable WalkRange
+-- 🦅 AFK Bot + Rayfield UI + Dance + Hello + Adjustable WalkRange
 -- ===============================
 
---// Load Rayfield UI
+--// Load Rayfield
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua'))()
 
 --// Services
 local Players = game:GetService("Players")
 local PathfindingService = game:GetService("PathfindingService")
 local Workspace = workspace
-local ChatService = game:GetService("Chat")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ChatService = game:GetService("Chat")
 
 --// Player references
 local LocalPlayer = Players.LocalPlayer
@@ -20,7 +20,7 @@ local Humanoid = Character:WaitForChild("Humanoid")
 
 --// Config
 local Config = {
-    WalkRange = 50,  -- default
+    WalkRange = 50,
     AvoidDistance = 15,
     StepBack = 10,
     JumpWhenSit = true,
@@ -45,8 +45,8 @@ local Config = {
 }
 
 -- Auto reply
-local AutoReplyKeywords = {"plss", "pls", "trade", "pet", "fruit", "money", "garden"}
-local AutoReplyMessages = {"no", "nah", "sorry", "nope", "not giving"}
+local AutoReplyKeywords = {"plss","pls","trade","pet","fruit","money","garden"}
+local AutoReplyMessages = {"no","nah","sorry","nope","not giving"}
 
 -- Raycast params
 local rayParams = RaycastParams.new()
@@ -66,9 +66,9 @@ local function isPositionStandable(pos)
     return true, down.Position
 end
 
--- Random target xa hơn
+-- Random nearby position xa hơn
 local function randomNearbyPosition(radius)
-    local angle = math.random() * math.pi * 2
+    local angle = math.random()*math.pi*2
     local distance = math.random(math.floor(radius/2), math.floor(radius))
     local offset = Vector3.new(math.cos(angle)*distance,0,math.sin(angle)*distance)
     return HRP.Position + offset
@@ -279,6 +279,14 @@ local AutoReplyToggle=Window:CreateToggle({
     Callback=function(value) _G.AutoReplyEnabled=value end
 })
 
+local HelloToggle=Window:CreateToggle({
+    Name="Random Hello Player",
+    CurrentValue=true,
+    Flag="HelloToggle",
+    Callback=function(value) _G.HelloEnabled=value end
+})
+_G.HelloEnabled=true
+
 -- Main auto-walk loop
 task.spawn(function()
     while task.wait(0.2) do
@@ -301,6 +309,30 @@ task.spawn(function()
             if not ok then addBlockedPath(targetPos); task.wait(Config.PathRetryDelay) end
         end
         task.wait(0.5)
+    end
+end)
+
+-- Random hello player occasionally
+task.spawn(function()
+    while task.wait(60) do
+        if not _G.AutoWalkEnabled or not _G.HelloEnabled then continue end
+        if math.random()<0.3 then
+            local otherPlayers={}
+            for _,plr in ipairs(Players:GetPlayers()) do
+                if plr~=LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                    table.insert(otherPlayers,plr)
+                end
+            end
+            if #otherPlayers>0 then
+                local targetPlr=otherPlayers[math.random(1,#otherPlayers)]
+                local targetPos=targetPlr.Character.HumanoidRootPart.Position-(targetPlr.Character.HumanoidRootPart.CFrame.LookVector*2)
+                if tryAlternateThenPath(targetPos) then
+                    task.wait(0.5)
+                    ReplicatedStorage:WaitForChild("DefaultChatSystemChatEvents")
+                        .SayMessageRequest:FireServer("/e hello","All")
+                end
+            end
+        end
     end
 end)
 
